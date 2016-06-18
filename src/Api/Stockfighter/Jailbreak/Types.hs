@@ -31,7 +31,7 @@ data ApuState = ApuState {
   -- | Instruction pointer
   pc :: Int,
   -- | Stack pointer
-  sp :: Int,
+  sp :: HexString,
   -- | Flags register
   sr :: Int,
   -- | Flags register(string)

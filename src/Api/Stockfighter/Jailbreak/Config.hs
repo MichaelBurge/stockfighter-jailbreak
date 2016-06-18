@@ -16,7 +16,7 @@ jailbreakConfig = unsafePerformIO $ newIORef =<< getJailbreakConfig
 getJailbreakConfig :: IO JailbreakConfig
 getJailbreakConfig = do
   (config, threadId) <- autoReload autoConfig [
-    Required "."
+    Required "config.txt"
     ]
   apiKey <- require config "stockfighter.api-key"
   return $ JailbreakConfig apiKey

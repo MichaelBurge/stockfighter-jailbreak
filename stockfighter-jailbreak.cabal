@@ -24,6 +24,7 @@ library
                      , configurator
                      , either
                      , http-client
+                     , http-client-tls
                      , servant
                      , servant-client
                      , text
