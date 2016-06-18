@@ -28,6 +28,8 @@ commandTree = CommandTree [
       ]),
   ("vm", CommandTree [
       ("compile", Command command_vm_compile),
+      ("exec", Command command_vm_exec),
+      ("load", Command command_vm_load),
       ("write", Command command_vm_write)
       ]),
   ("level", Command command_level)
@@ -74,9 +76,19 @@ command_vm_compile xs = case xs of
     program <- BSL.readFile $ T.unpack x
     result <- unsafeInvokeApi $ flip post_vm_compile program
     if ok (result :: JB.CompileResponse)
-      then putStrLn "Compile successful"
+      then putStrLn $ show result
       else T.putStrLn $ text result
   _ -> P.error $ "Too many arguments"  
+
+command_vm_exec :: Args -> IO ()
+command_vm_exec _ = do
+  result <- unsafeInvokeApi post_vm_exec
+  putStrLn $ show result
+
+command_vm_load :: Args -> IO ()
+command_vm_load _ = do
+  result <- unsafeInvokeApi post_vm_load
+  putStrLn $ show result
   
 command_vm_write :: Args -> IO ()
 command_vm_write _ = do

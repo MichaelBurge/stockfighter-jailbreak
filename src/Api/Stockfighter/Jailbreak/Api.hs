@@ -24,6 +24,8 @@ type JailbreakApi =
   :<|> "device/restart" :> Post '[JSON] RestartDeviceResponse
   :<|> "device/stop"  :> Post '[JSON] StopDeviceResponse
   :<|> "vm/compile" :> ReqBody '[OctetStream] BSL.ByteString :> Post '[JSON] CompileResponse
+  :<|> "vm/exec" :> Post '[JSON] ExecResponse
+  :<|> "vm/load" :> Post '[JSON] LoadBytecodeResponse
   :<|> "vm/write" :> Post '[JSON] WriteBytecodeResponse
   :<|> "level" :> Get '[JSON] GetCurrentLevelResponse
 
@@ -37,6 +39,8 @@ data ApiClient = ApiClient {
   post_device_restart :: Response RestartDeviceResponse,
   post_device_stop :: Response StopDeviceResponse,
   post_vm_compile :: BSL.ByteString -> Response CompileResponse,
+  post_vm_exec :: Response ExecResponse,
+  post_vm_load :: Response LoadBytecodeResponse,
   get_vm_write :: Response WriteBytecodeResponse,
   get_level :: Response GetCurrentLevelResponse
   }
@@ -49,6 +53,8 @@ mkApiClient apiKey = ApiClient{..}
      post_device_restart :<|>
      post_device_stop :<|>
      post_vm_compile :<|>
+     post_vm_exec :<|>
+     post_vm_load :<|>
      get_vm_write :<|>
      get_level) = client jailbreakApi $ Just apiKey
 

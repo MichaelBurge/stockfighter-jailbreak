@@ -59,7 +59,22 @@ data GetCurrentLevelResponse = GetCurrentLevelResponse {
 
 instance ToJSON GetCurrentLevelResponse where
 instance FromJSON GetCurrentLevelResponse where
-                               
+
+data LoadBytecodeResponse = LoadBytecodeResponse {
+  ok :: Bool
+  } deriving (Generic, Show)
+
+instance ToJSON LoadBytecodeResponse where
+instance FromJSON LoadBytecodeResponse where
+
+data ExecResponse = ExecResponse {
+  ok :: Bool,
+  error :: T.Text
+  } deriving (Generic, Show)
+instance ToJSON ExecResponse where
+instance FromJSON ExecResponse where
+  
+  
 -- | Response from compiling a C program
 data CompileResponse = CompileResponse {
   ok :: Bool,
