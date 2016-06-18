@@ -27,6 +27,30 @@ data GetDeviceStatusResponse = GetDeviceStatusResponse {
 instance ToJSON GetDeviceStatusResponse where
 instance FromJSON GetDeviceStatusResponse where
 
+data StartDeviceResponse = StartDeviceResponse {
+  ok :: Bool,
+  error :: T.Text
+  } deriving (Generic, Show)
+
+instance ToJSON StartDeviceResponse where
+instance FromJSON StartDeviceResponse where
+
+data RestartDeviceResponse = RestartDeviceResponse {
+  ok :: Bool,
+  error :: T.Text
+  } deriving (Generic, Show)
+
+instance ToJSON RestartDeviceResponse where
+instance FromJSON RestartDeviceResponse where
+
+data StopDeviceResponse = StopDeviceResponse {
+  ok :: Bool,
+  error :: T.Text
+  } deriving (Generic, Show)
+
+instance ToJSON StopDeviceResponse where
+instance FromJSON StopDeviceResponse where
+                          
 data GetCurrentLevelResponse = GetCurrentLevelResponse {
   ok :: Bool,
   level :: Int,
@@ -52,7 +76,14 @@ data CompileResponse = CompileResponse {
 
 instance ToJSON CompileResponse where
 instance FromJSON CompileResponse where
-                       
+
+data WriteBytecodeResponse = WriteBytecodeResponse {
+  ok :: Bool
+  } deriving (Generic, Show)
+
+instance ToJSON WriteBytecodeResponse where
+instance FromJSON WriteBytecodeResponse where
+                             
 data Function = Function {
   offset :: Int,
   name :: T.Text

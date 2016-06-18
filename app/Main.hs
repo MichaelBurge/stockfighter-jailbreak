@@ -1,7 +1,10 @@
 {-# LANGUAGE OverloadedStrings,DuplicateRecordFields #-}
 module Main where
 
+import Prelude as P
+
 import Api.Stockfighter.Jailbreak
+import qualified Api.Stockfighter.Jailbreak as JB
 
 import Data.List (lookup)
 import Data.Monoid ((<>))
@@ -18,10 +21,14 @@ data CommandTree = CommandTree [ (T.Text, CommandTree) ] | Command (Args -> IO (
 commandTree :: CommandTree
 commandTree = CommandTree [
   ("device", CommandTree [
-      ("status", Command $ const command_device_status)
+      ("status", Command $ const command_device_status),
+      ("start", Command command_device_start),
+      ("restart", Command command_device_restart),
+      ("stop", Command command_device_stop)
       ]),
   ("vm", CommandTree [
-      ("compile", Command command_vm_compile)
+      ("compile", Command command_vm_compile),
+      ("write", Command command_vm_write)
       ]),
   ("level", Command command_level)
   ]
@@ -42,21 +49,37 @@ command_device_status = do
   result <- unsafeInvokeApi get_device_status
   putStrLn $ show result
 
+command_device_start _ = do
+  result <- unsafeInvokeApi post_device_start
+  putStrLn $ show result
+  
+command_device_restart _ = do
+  result <- unsafeInvokeApi post_device_restart
+  putStrLn $ show result
+  
+command_device_stop _ = do
+  result <- unsafeInvokeApi post_device_stop
+  putStrLn $ show result
+
 command_level :: Args -> IO ()
 command_level _ = do
   result <- unsafeInvokeApi get_level
-  T.putStrLn $ "Level" <> T.pack (show $ level result) <> " - " <> name (result :: GetCurrentLevelResponse)
+  T.putStrLn $ "Level" <> T.pack (show $ level result) <> " - " <> name (result :: JB.GetCurrentLevelResponse)
 
 command_vm_compile :: Args -> IO ()
 command_vm_compile xs = case xs of
-  [] -> error $ "Expected a filename"
+  [] -> P.error $ "Expected a filename"
   
   [x] -> do
     program <- BSL.readFile $ T.unpack x
     result <- unsafeInvokeApi $ flip post_vm_compile program
     putStrLn $ show result
-  _ -> error $ "Too many arguments"  
+  _ -> P.error $ "Too many arguments"  
   
+command_vm_write :: Args -> IO ()
+command_vm_write _ = do
+  result <- unsafeInvokeApi $ get_vm_write
+  putStrLn $ show result
 
 main :: IO ()
 main = do

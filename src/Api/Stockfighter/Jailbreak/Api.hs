@@ -20,22 +20,37 @@ import qualified Data.Text as T
 type JailbreakApi =
   Header "X-Starfighter-Authorization" ApiKey :> (
        "device/status" :> Get '[JSON] GetDeviceStatusResponse
+  :<|> "device/start" :> Post '[JSON] StartDeviceResponse
+  :<|> "device/restart" :> Post '[JSON] RestartDeviceResponse
+  :<|> "device/stop"  :> Post '[JSON] StopDeviceResponse
   :<|> "vm/compile" :> ReqBody '[OctetStream] BSL.ByteString :> Post '[JSON] CompileResponse
+  :<|> "vm/write" :> Post '[JSON] WriteBytecodeResponse
   :<|> "level" :> Get '[JSON] GetCurrentLevelResponse
+
   )
 
 type Response a = Manager -> BaseUrl -> ClientM a
 
 data ApiClient = ApiClient {
   get_device_status :: Response GetDeviceStatusResponse,
+  post_device_start :: Response StartDeviceResponse,
+  post_device_restart :: Response RestartDeviceResponse,
+  post_device_stop :: Response StopDeviceResponse,
   post_vm_compile :: BSL.ByteString -> Response CompileResponse,
+  get_vm_write :: Response WriteBytecodeResponse,
   get_level :: Response GetCurrentLevelResponse
   }
 
 mkApiClient :: ApiKey -> ApiClient
 mkApiClient apiKey = ApiClient{..}
   where
-    (get_device_status :<|> post_vm_compile :<|> get_level) = client jailbreakApi $ Just apiKey
+    (get_device_status :<|>
+     post_device_start :<|>
+     post_device_restart :<|>
+     post_device_stop :<|>
+     post_vm_compile :<|>
+     get_vm_write :<|>
+     get_level) = client jailbreakApi $ Just apiKey
 
 jailbreakApi :: Proxy JailbreakApi
 jailbreakApi = Proxy
@@ -54,5 +69,5 @@ unsafeInvokeApi :: (ApiClient -> Response a) -> IO a
 unsafeInvokeApi action = do
   eResult <- runExceptT $ invokeApi action
   case eResult of
-    Left err -> error $ show err
+    Left err -> Prelude.error $ show err
     Right result -> return result
