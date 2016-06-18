@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings,DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedStrings,DuplicateRecordFields,RecordWildCards #-}
 module Main where
 
 import Prelude as P
@@ -6,7 +6,8 @@ import Prelude as P
 import Api.Stockfighter.Jailbreak
 import qualified Api.Stockfighter.Jailbreak as JB
 
-import Data.Aeson (encode)
+import Control.Monad
+import Data.Aeson (decode,encode,eitherDecode)
 import Data.List (lookup)
 import Data.Monoid ((<>))
 import System.Environment
@@ -20,10 +21,17 @@ type Args = [ T.Text ]
 
 data CommandTree = CommandTree [ (T.Text, CommandTree) ] | Command (Args -> IO ())
 
+showt :: Show a => a -> T.Text
+showt = T.pack . show
+
 commandTree :: CommandTree
 commandTree = CommandTree [
   ("device", CommandTree [
       ("status", Command $ const command_device_status),
+      ("program", CommandTree [
+          ("fetch", Command command_device_program_fetch),
+          ("disassemble", Command command_device_program_disassemble)
+          ]),
       ("start", Command command_device_start),
       ("restart", Command command_device_restart),
       ("stdout", Command command_device_stdout),
@@ -54,6 +62,29 @@ command_device_status = do
   result <- unsafeInvokeApi get_device_status
   putStrLn $ show result
 
+command_device_program_fetch args = case args of
+  [] -> act 0
+  [x] -> act $ int x
+  where
+    act core = do
+      result <- unsafeInvokeApi $ flip get_device_program core
+      BSL.putStr result
+
+command_device_program_disassemble args = case args :: [T.Text]of
+  [] -> P.error "Expected exactly 1 argument(filename); found 0"
+  [x] -> do
+    contents <- BSL.readFile $ T.unpack x
+    let eInstructions = eitherDecode contents
+    case eInstructions of
+      Left err -> putStrLn $ "Error decoding: " ++ err
+      Right instructions -> do
+        putStrLn $ "Number of Instructions: " ++ show (length (instructions :: [Instruction]))
+        forM_ instructions $ \Instruction{..} -> do
+          case symbol of
+            Nothing -> do
+              T.putStrLn $ (showt offset) <> ":\t\t" <> dump
+            Just x -> T.putStrLn x
+
 command_device_start _ = do
   result <- unsafeInvokeApi post_device_start
   putStrLn $ show result
@@ -64,10 +95,9 @@ command_device_restart _ = do
 
 command_device_stdout xs = case xs of
   [] -> act 0 0
-  [x] -> act (u x) 0
-  [x,y] -> act (u x) (u y)
+  [x] -> act (int x) 0
+  [x,y] -> act (int x) (int y)
   where
-    u x = read $ T.unpack x :: Int
     act cores offset = do
       result <- unsafeInvokeApi $ \apiKey -> get_device_stdout apiKey cores offset
       let (Base64Bytes bs) = base64bytes $ iov result
@@ -107,6 +137,8 @@ command_vm_write [x] = do
   bytecode <- BSL.readFile $ T.unpack x
   result <- unsafeInvokeApi $ flip get_vm_write bytecode
   putStrLn $ show result
+
+int x = read $ T.unpack x :: Int
 
 main :: IO ()
 main = do

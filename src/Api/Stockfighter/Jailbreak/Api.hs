@@ -33,6 +33,7 @@ instance MimeUnrender OctetStreamJSON BSL.ByteString where
 type JailbreakApi =
   Header "X-Starfighter-Authorization" ApiKey :> (
        "device/status" :> Get '[JSON] GetDeviceStatusResponse
+  :<|> "device/program" :> Capture "core" Int :> Get '[OctetStreamJSON] BSL.ByteString
   :<|> "device/start" :> Post '[JSON] StartDeviceResponse
   :<|> "device/restart" :> Post '[JSON] RestartDeviceResponse
   :<|> "device/stdout" :> Capture "core" Int :> Capture "offset" Int :> Get '[JSON] GetStdoutResponse
@@ -48,6 +49,7 @@ type Response a = Manager -> BaseUrl -> ClientM a
 
 data ApiClient = ApiClient {
   get_device_status :: Response GetDeviceStatusResponse,
+  get_device_program :: Int -> Response BSL.ByteString,
   post_device_start :: Response StartDeviceResponse,
   post_device_restart :: Response RestartDeviceResponse,
   get_device_stdout :: Int -> Int -> Response GetStdoutResponse,
@@ -63,6 +65,7 @@ mkApiClient :: ApiKey -> ApiClient
 mkApiClient apiKey = ApiClient{..}
   where
     (get_device_status :<|>
+     get_device_program :<|>
      post_device_start :<|>
      post_device_restart :<|>
      get_device_stdout :<|>

@@ -161,3 +161,21 @@ data ApuState = ApuState {
 
 instance ToJSON ApuState where
 instance FromJSON ApuState where
+
+data Instruction = Instruction {
+  ok :: Bool,
+  raw64 :: T.Text,
+  mnem :: T.Text,
+  code :: Int,
+  dest :: Int,
+  src :: Int,
+  k :: Int,
+  s :: Int,
+  b :: Int,
+  offset :: Int,
+  symbol :: Maybe T.Text,
+  dump :: T.Text
+  } deriving (Generic, Show)
+
+instance ToJSON Instruction where
+instance FromJSON Instruction where
