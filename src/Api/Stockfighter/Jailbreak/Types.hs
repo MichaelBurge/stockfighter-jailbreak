@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveGeneric,DuplicateRecordFields #-}
 
 module Api.Stockfighter.Jailbreak.Types where
 
@@ -27,9 +27,23 @@ data GetDeviceStatusResponse = GetDeviceStatusResponse {
 instance ToJSON GetDeviceStatusResponse where
 instance FromJSON GetDeviceStatusResponse where
 
-data CompileCProgramResponse = CompileCProgramResponse {
+-- | Response from compiling a C program
+data CompileResponse = CompileResponse {
+  ok :: Bool,
+  bss :: T.Text,
+  po :: Int,
+  eov :: Int,
+  raw :: T.Text,
+  ep :: Int,
+  row :: Int,
+  text :: T.Text,
+  token :: T.Text,
+  functions :: [Function]
   } deriving (Generic, Show)
-  
+
+instance ToJSON CompileResponse where
+instance FromJSON CompileResponse where
+                       
 data Function = Function {
   offset :: Int,
   name :: T.Text

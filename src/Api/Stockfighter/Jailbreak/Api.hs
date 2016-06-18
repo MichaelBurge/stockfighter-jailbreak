@@ -1,4 +1,4 @@
-{-# LANGUAGE DataKinds,TypeOperators,OverloadedStrings #-}
+{-# LANGUAGE DataKinds,TypeOperators,OverloadedStrings,DuplicateRecordFields,RecordWildCards #-}
 
 module Api.Stockfighter.Jailbreak.Api where
 
@@ -14,30 +14,41 @@ import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Servant.API
 import Servant.Client
 
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
 
 type JailbreakApi =
   Header "X-Starfighter-Authorization" ApiKey :> (
-  "device/status" :> Get '[JSON] GetDeviceStatusResponse
+       "device/status" :> Get '[JSON] GetDeviceStatusResponse
+  :<|> "vm/compile" :> ReqBody '[OctetStream] BSL.ByteString :> Get '[JSON] CompileResponse
   )
+
+type Response a = Manager -> BaseUrl -> ClientM a
+
+data ApiClient = ApiClient {
+  get_device_status :: Response GetDeviceStatusResponse,
+  post_vm_compile :: BSL.ByteString -> Response CompileResponse
+  }
+
+mkApiClient :: ApiKey -> ApiClient
+mkApiClient apiKey = ApiClient{..}
+  where
+    (get_device_status :<|> post_vm_compile) = client jailbreakApi $ Just apiKey
 
 jailbreakApi :: Proxy JailbreakApi
 jailbreakApi = Proxy
 
-getDeviceStatus :: Maybe T.Text->Manager->BaseUrl->ClientM GetDeviceStatusResponse
-getDeviceStatus = client jailbreakApi
-
 baseUrl :: BaseUrl
 baseUrl = BaseUrl Http "www.stockfighter.io" 80 "/trainer"
 
-invokeApi :: (Maybe T.Text -> Manager -> BaseUrl -> ClientM a) -> ClientM a
+invokeApi :: (ApiClient -> Response a) -> ClientM a
 invokeApi action =
   ExceptT $ bracket (newManager tlsManagerSettings) closeManager $ \manager -> do
     config <- readIORef jailbreakConfig
-    let key = apiKey config
-    runExceptT $ action (Just key) manager baseUrl
+    let apiClient = mkApiClient $ apiKey config
+    runExceptT $ action apiClient manager baseUrl
   
-unsafeInvokeApi :: (Maybe T.Text -> Manager -> BaseUrl -> ClientM a) -> IO a
+unsafeInvokeApi :: (ApiClient -> Response a) -> IO a
 unsafeInvokeApi action = do
   eResult <- runExceptT $ invokeApi action
   case eResult of

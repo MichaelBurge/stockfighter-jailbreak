@@ -21,6 +21,7 @@ library
                      , Api.Stockfighter.Jailbreak.Types
   build-depends:       base >= 4.7 && < 5
                      , aeson
+                     , bytestring
                      , configurator
                      , either
                      , http-client
@@ -38,6 +39,7 @@ executable jb
   build-depends:       base
                      , stockfighter-jailbreak
                      , text
+                     , bytestring
   default-language:    Haskell2010
 
 source-repository head

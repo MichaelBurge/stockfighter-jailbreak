@@ -7,6 +7,7 @@ import Data.List (lookup)
 import Data.Monoid ((<>))
 import System.Environment
 
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
 
@@ -16,7 +17,12 @@ data CommandTree = CommandTree [ (T.Text, CommandTree) ] | Command (Args -> IO (
 
 commandTree :: CommandTree
 commandTree = CommandTree [
-  ("get-status", Command $ const getStatus)
+  ("device", CommandTree [
+      ("status", Command $ const command_device_status)
+      ]),
+  ("vm", CommandTree [
+      ("compile", Command command_vm_compile)
+      ])
   ]
 
 walkCommandTree :: Args -> CommandTree -> Either T.Text (IO ())
@@ -31,9 +37,20 @@ walkCommandTree args tree = case tree of
         child <- maybe (Left err) Right $ lookup a xs
         walkCommandTree args child
 
-getStatus = do
-  result <- unsafeInvokeApi getDeviceStatus
+command_device_status = do
+  result <- unsafeInvokeApi get_device_status
   putStrLn $ show result
+
+command_vm_compile :: Args -> IO ()
+command_vm_compile xs = case xs of
+  [] -> error $ "Expected a filename"
+  
+  [x] -> do
+    program <- BSL.readFile $ T.unpack x
+    result <- unsafeInvokeApi $ flip post_vm_compile program
+    putStrLn $ show result
+  _ -> error $ "Too many arguments"  
+  
 
 main :: IO ()
 main = do
