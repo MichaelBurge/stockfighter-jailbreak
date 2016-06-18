@@ -27,6 +27,17 @@ data GetDeviceStatusResponse = GetDeviceStatusResponse {
 instance ToJSON GetDeviceStatusResponse where
 instance FromJSON GetDeviceStatusResponse where
 
+data CompileCProgramResponse = CompileCProgramResponse {
+  } deriving (Generic, Show)
+  
+data Function = Function {
+  offset :: Int,
+  name :: T.Text
+  } deriving (Generic, Show)
+
+instance ToJSON Function where
+instance FromJSON Function where
+                
 data ApuState = ApuState {
   -- | Instruction pointer
   pc :: Int,
