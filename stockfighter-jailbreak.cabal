@@ -21,6 +21,7 @@ library
                      , Api.Stockfighter.Jailbreak.Types
   build-depends:       base >= 4.7 && < 5
                      , aeson
+                     , base64-bytestring
                      , bytestring
                      , configurator
                      , either

@@ -22,13 +22,13 @@ type JailbreakApi =
        "device/status" :> Get '[JSON] GetDeviceStatusResponse
   :<|> "device/start" :> Post '[JSON] StartDeviceResponse
   :<|> "device/restart" :> Post '[JSON] RestartDeviceResponse
+  :<|> "device/stdout" :> Capture "core" Int :> Capture "offset" Int :> Get '[JSON] GetStdoutResponse
   :<|> "device/stop"  :> Post '[JSON] StopDeviceResponse
   :<|> "vm/compile" :> ReqBody '[OctetStream] BSL.ByteString :> Post '[JSON] CompileResponse
   :<|> "vm/exec" :> Post '[JSON] ExecResponse
   :<|> "vm/load" :> Post '[JSON] LoadBytecodeResponse
   :<|> "vm/write" :> Post '[JSON] WriteBytecodeResponse
   :<|> "level" :> Get '[JSON] GetCurrentLevelResponse
-
   )
 
 type Response a = Manager -> BaseUrl -> ClientM a
@@ -37,6 +37,7 @@ data ApiClient = ApiClient {
   get_device_status :: Response GetDeviceStatusResponse,
   post_device_start :: Response StartDeviceResponse,
   post_device_restart :: Response RestartDeviceResponse,
+  get_device_stdout :: Int -> Int -> Response GetStdoutResponse,
   post_device_stop :: Response StopDeviceResponse,
   post_vm_compile :: BSL.ByteString -> Response CompileResponse,
   post_vm_exec :: Response ExecResponse,
@@ -51,6 +52,7 @@ mkApiClient apiKey = ApiClient{..}
     (get_device_status :<|>
      post_device_start :<|>
      post_device_restart :<|>
+     get_device_stdout :<|>
      post_device_stop :<|>
      post_vm_compile :<|>
      post_vm_exec :<|>

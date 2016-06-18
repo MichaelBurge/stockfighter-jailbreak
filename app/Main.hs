@@ -10,6 +10,7 @@ import Data.List (lookup)
 import Data.Monoid ((<>))
 import System.Environment
 
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
 import qualified Data.Text.IO as T
@@ -24,6 +25,7 @@ commandTree = CommandTree [
       ("status", Command $ const command_device_status),
       ("start", Command command_device_start),
       ("restart", Command command_device_restart),
+      ("stdout", Command command_device_stdout),
       ("stop", Command command_device_stop)
       ]),
   ("vm", CommandTree [
@@ -58,6 +60,17 @@ command_device_start _ = do
 command_device_restart _ = do
   result <- unsafeInvokeApi post_device_restart
   putStrLn $ show result
+
+command_device_stdout xs = case xs of
+  [] -> act 0 0
+  [x] -> act (u x) 0
+  [x,y] -> act (u x) (u y)
+  where
+    u x = read $ T.unpack x :: Int
+    act cores offset = do
+      result <- unsafeInvokeApi $ \apiKey -> get_device_stdout apiKey cores offset
+      let (Base64Bytes bs) = base64bytes $ iov result
+      BS.putStrLn bs
   
 command_device_stop _ = do
   result <- unsafeInvokeApi post_device_stop

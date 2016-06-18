@@ -5,7 +5,13 @@ module Api.Stockfighter.Jailbreak.Types where
 import Data.Aeson
 import GHC.Generics
 
+import qualified Data.ByteString.Base64 as Base64
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
+import qualified Data.Text.Lazy as TL
+import qualified Data.Text.Lazy.Encoding as TL
 
 type ApiKey = T.Text
 newtype HexString = HexString T.Text deriving (Generic, Show)
@@ -13,6 +19,18 @@ newtype HexString = HexString T.Text deriving (Generic, Show)
 instance ToJSON HexString where
 instance FromJSON HexString where
 
+newtype Base64Bytes = Base64Bytes BS.ByteString deriving (Show)
+
+instance ToJSON Base64Bytes where
+  toJSON (Base64Bytes bs) = toJSON (T.decodeUtf8 $ Base64.encode bs :: T.Text)
+
+instance FromJSON Base64Bytes where
+  parseJSON json = do
+    eResult <- Base64.decode <$> T.encodeUtf8 <$> parseJSON json
+    case eResult of
+      Left e -> fail e
+      Right x -> return $ Base64Bytes x
+  
 data JailbreakConfig = JailbreakConfig {
   apiKey :: ApiKey
   } deriving (Generic, Show)
@@ -43,6 +61,24 @@ data RestartDeviceResponse = RestartDeviceResponse {
 instance ToJSON RestartDeviceResponse where
 instance FromJSON RestartDeviceResponse where
 
+data GetStdoutResponse = GetStdoutResponse {
+  ok :: Bool,
+  runcount :: Int,
+  iov :: Iov
+  } deriving (Generic, Show)
+
+instance ToJSON GetStdoutResponse where
+instance FromJSON GetStdoutResponse where
+
+data Iov = Iov {
+  offset :: Int,
+  base64bytes :: Base64Bytes
+  } deriving (Generic, Show)
+
+instance ToJSON Iov where
+instance FromJSON Iov
+
+                         
 data StopDeviceResponse = StopDeviceResponse {
   ok :: Bool,
   error :: T.Text
