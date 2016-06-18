@@ -73,7 +73,9 @@ command_vm_compile xs = case xs of
   [x] -> do
     program <- BSL.readFile $ T.unpack x
     result <- unsafeInvokeApi $ flip post_vm_compile program
-    putStrLn $ show result
+    if ok (result :: JB.CompileResponse)
+      then putStrLn "Compile successful"
+      else T.putStrLn $ text result
   _ -> P.error $ "Too many arguments"  
   
 command_vm_write :: Args -> IO ()

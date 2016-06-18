@@ -63,16 +63,17 @@ instance FromJSON GetCurrentLevelResponse where
 -- | Response from compiling a C program
 data CompileResponse = CompileResponse {
   ok :: Bool,
-  bss :: T.Text,
-  po :: Int,
-  eov :: Int,
-  raw :: T.Text,
-  ep :: Int,
+  bss :: Maybe T.Text,
+  po :: Maybe Int,
+  eov :: Maybe Int,
+  raw :: Maybe T.Text,
+  ep :: Maybe Int,
   row :: Int,
   text :: T.Text,
-  token :: T.Text,
-  functions :: [Function]
-  } deriving (Generic, Show)
+  token :: Maybe T.Text,
+  functions :: Maybe [Function]
+  }
+  deriving (Generic, Show)
 
 instance ToJSON CompileResponse where
 instance FromJSON CompileResponse where
