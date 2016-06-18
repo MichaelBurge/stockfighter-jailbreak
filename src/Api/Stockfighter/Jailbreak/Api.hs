@@ -21,19 +21,21 @@ type JailbreakApi =
   Header "X-Starfighter-Authorization" ApiKey :> (
        "device/status" :> Get '[JSON] GetDeviceStatusResponse
   :<|> "vm/compile" :> ReqBody '[OctetStream] BSL.ByteString :> Post '[JSON] CompileResponse
+  :<|> "level" :> Get '[JSON] GetCurrentLevelResponse
   )
 
 type Response a = Manager -> BaseUrl -> ClientM a
 
 data ApiClient = ApiClient {
   get_device_status :: Response GetDeviceStatusResponse,
-  post_vm_compile :: BSL.ByteString -> Response CompileResponse
+  post_vm_compile :: BSL.ByteString -> Response CompileResponse,
+  get_level :: Response GetCurrentLevelResponse
   }
 
 mkApiClient :: ApiKey -> ApiClient
 mkApiClient apiKey = ApiClient{..}
   where
-    (get_device_status :<|> post_vm_compile) = client jailbreakApi $ Just apiKey
+    (get_device_status :<|> post_vm_compile :<|> get_level) = client jailbreakApi $ Just apiKey
 
 jailbreakApi :: Proxy JailbreakApi
 jailbreakApi = Proxy

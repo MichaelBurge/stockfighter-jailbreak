@@ -27,6 +27,15 @@ data GetDeviceStatusResponse = GetDeviceStatusResponse {
 instance ToJSON GetDeviceStatusResponse where
 instance FromJSON GetDeviceStatusResponse where
 
+data GetCurrentLevelResponse = GetCurrentLevelResponse {
+  ok :: Bool,
+  level :: Int,
+  name :: T.Text
+  } deriving (Generic, Show)
+
+instance ToJSON GetCurrentLevelResponse where
+instance FromJSON GetCurrentLevelResponse where
+                               
 -- | Response from compiling a C program
 data CompileResponse = CompileResponse {
   ok :: Bool,

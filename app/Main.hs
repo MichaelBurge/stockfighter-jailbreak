@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings,DuplicateRecordFields #-}
 module Main where
 
 import Api.Stockfighter.Jailbreak
@@ -22,7 +22,8 @@ commandTree = CommandTree [
       ]),
   ("vm", CommandTree [
       ("compile", Command command_vm_compile)
-      ])
+      ]),
+  ("level", Command command_level)
   ]
 
 walkCommandTree :: Args -> CommandTree -> Either T.Text (IO ())
@@ -40,6 +41,11 @@ walkCommandTree args tree = case tree of
 command_device_status = do
   result <- unsafeInvokeApi get_device_status
   putStrLn $ show result
+
+command_level :: Args -> IO ()
+command_level _ = do
+  result <- unsafeInvokeApi get_level
+  T.putStrLn $ "Level" <> T.pack (show $ level result) <> " - " <> name (result :: GetCurrentLevelResponse)
 
 command_vm_compile :: Args -> IO ()
 command_vm_compile xs = case xs of
