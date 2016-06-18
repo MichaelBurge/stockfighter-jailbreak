@@ -35,7 +35,7 @@ walkCommandTree args tree = case tree of
       (a:as) -> do
         let err = "Unknown command '" <> a <> "'. " <> choicesError
         child <- maybe (Left err) Right $ lookup a xs
-        walkCommandTree args child
+        walkCommandTree as child
 
 command_device_status = do
   result <- unsafeInvokeApi get_device_status

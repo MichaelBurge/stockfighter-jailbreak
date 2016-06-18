@@ -20,7 +20,7 @@ import qualified Data.Text as T
 type JailbreakApi =
   Header "X-Starfighter-Authorization" ApiKey :> (
        "device/status" :> Get '[JSON] GetDeviceStatusResponse
-  :<|> "vm/compile" :> ReqBody '[OctetStream] BSL.ByteString :> Get '[JSON] CompileResponse
+  :<|> "vm/compile" :> ReqBody '[OctetStream] BSL.ByteString :> Post '[JSON] CompileResponse
   )
 
 type Response a = Manager -> BaseUrl -> ClientM a
