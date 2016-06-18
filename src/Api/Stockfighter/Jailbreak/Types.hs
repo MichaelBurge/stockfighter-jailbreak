@@ -1,4 +1,4 @@
-{-# LANGUAGE DeriveGeneric,DuplicateRecordFields #-}
+{-# LANGUAGE DeriveGeneric,DuplicateRecordFields,DeriveDataTypeable #-}
 
 module Api.Stockfighter.Jailbreak.Types where
 
@@ -130,7 +130,8 @@ instance ToJSON CompileResponse where
 instance FromJSON CompileResponse where
 
 data WriteBytecodeResponse = WriteBytecodeResponse {
-  ok :: Bool
+  ok :: Bool,
+  error :: Maybe T.Text
   } deriving (Generic, Show)
 
 instance ToJSON WriteBytecodeResponse where

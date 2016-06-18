@@ -6,6 +6,7 @@ import Prelude as P
 import Api.Stockfighter.Jailbreak
 import qualified Api.Stockfighter.Jailbreak as JB
 
+import Data.Aeson (encode)
 import Data.List (lookup)
 import Data.Monoid ((<>))
 import System.Environment
@@ -88,9 +89,7 @@ command_vm_compile xs = case xs of
   [x] -> do
     program <- BSL.readFile $ T.unpack x
     result <- unsafeInvokeApi $ flip post_vm_compile program
-    if ok (result :: JB.CompileResponse)
-      then putStrLn $ show result
-      else T.putStrLn $ text result
+    BSL.putStrLn result
   _ -> P.error $ "Too many arguments"  
 
 command_vm_exec :: Args -> IO ()
@@ -104,8 +103,9 @@ command_vm_load _ = do
   putStrLn $ show result
   
 command_vm_write :: Args -> IO ()
-command_vm_write _ = do
-  result <- unsafeInvokeApi $ get_vm_write
+command_vm_write [x] = do
+  bytecode <- BSL.readFile $ T.unpack x
+  result <- unsafeInvokeApi $ flip get_vm_write bytecode
   putStrLn $ show result
 
 main :: IO ()

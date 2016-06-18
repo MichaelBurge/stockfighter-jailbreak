@@ -1,4 +1,4 @@
-{-# LANGUAGE DataKinds,TypeOperators,OverloadedStrings,DuplicateRecordFields,RecordWildCards #-}
+{-# LANGUAGE DataKinds,TypeOperators,OverloadedStrings,DuplicateRecordFields,RecordWildCards,DeriveDataTypeable,MultiParamTypeClasses #-}
 
 module Api.Stockfighter.Jailbreak.Api where
 
@@ -9,13 +9,26 @@ import Control.Exception (bracket)
 import Control.Monad.Trans.Except
 import Data.IORef
 import Data.Proxy
+import Data.Typeable
 import Network.HTTP.Client (newManager, closeManager, Manager)
 import Network.HTTP.Client.TLS (tlsManagerSettings)
 import Servant.API
 import Servant.Client
+import Servant.API.ContentTypes
 
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Text as T
+
+data OctetStreamJSON deriving (Typeable)
+
+instance Accept OctetStreamJSON where
+  contentType _ = "application/json"
+  
+instance MimeRender OctetStreamJSON BSL.ByteString where
+  mimeRender _ = id
+  
+instance MimeUnrender OctetStreamJSON BSL.ByteString where
+  mimeUnrender _ = Right . id
 
 type JailbreakApi =
   Header "X-Starfighter-Authorization" ApiKey :> (
@@ -24,10 +37,10 @@ type JailbreakApi =
   :<|> "device/restart" :> Post '[JSON] RestartDeviceResponse
   :<|> "device/stdout" :> Capture "core" Int :> Capture "offset" Int :> Get '[JSON] GetStdoutResponse
   :<|> "device/stop"  :> Post '[JSON] StopDeviceResponse
-  :<|> "vm/compile" :> ReqBody '[OctetStream] BSL.ByteString :> Post '[JSON] CompileResponse
+  :<|> "vm/compile" :> ReqBody '[OctetStream] BSL.ByteString :> Post '[OctetStreamJSON] BSL.ByteString
   :<|> "vm/exec" :> Post '[JSON] ExecResponse
   :<|> "vm/load" :> Post '[JSON] LoadBytecodeResponse
-  :<|> "vm/write" :> Post '[JSON] WriteBytecodeResponse
+  :<|> "vm/write" :> ReqBody '[OctetStream] BSL.ByteString :> Post '[JSON] WriteBytecodeResponse
   :<|> "level" :> Get '[JSON] GetCurrentLevelResponse
   )
 
@@ -39,10 +52,10 @@ data ApiClient = ApiClient {
   post_device_restart :: Response RestartDeviceResponse,
   get_device_stdout :: Int -> Int -> Response GetStdoutResponse,
   post_device_stop :: Response StopDeviceResponse,
-  post_vm_compile :: BSL.ByteString -> Response CompileResponse,
+  post_vm_compile :: BSL.ByteString -> Response BSL.ByteString,
   post_vm_exec :: Response ExecResponse,
   post_vm_load :: Response LoadBytecodeResponse,
-  get_vm_write :: Response WriteBytecodeResponse,
+  get_vm_write :: BSL.ByteString -> Response WriteBytecodeResponse,
   get_level :: Response GetCurrentLevelResponse
   }
 
