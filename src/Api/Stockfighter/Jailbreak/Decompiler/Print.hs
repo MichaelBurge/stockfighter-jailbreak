@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards,DeriveDataTypeable #-}
 
 module Api.Stockfighter.Jailbreak.Decompiler.Print where
 
@@ -7,9 +7,13 @@ import Api.Stockfighter.Jailbreak.Decompiler.AST
 
 import Control.Lens hiding (elements)
 import Control.Monad.Trans.Reader
+import Data.Char
 import Text.PrettyPrint as PP
 
 import qualified Data.Text as T
+
+block :: Doc -> Doc -> Doc
+block intro inner = hang (intro <+> lbrace) 4 inner $+$ rbrace
 
 instance PrintAst Symbol where
   printNode x = return $ PP.text $ T.unpack $ x ^. sym_symbol 
@@ -65,7 +69,8 @@ instance PrintAst Statement where
       a <- printNode varId
       return $ PP.text "goto" <+> a
     SAsm xs -> do
-      vcat <$> mapM printNode xs
+      asms <- mapM printNode xs
+      return $ block (PP.text "asm") $ sep (punctuate semi asms)
     SVariable varId ty mInitializer -> do
       a <- printNode ty
       b <- printNode varId
@@ -80,7 +85,7 @@ instance PrintAst Statement where
       b <- printNode sym
       cs <- mapM printNode args
       ds <- mapM printNode body
-      return $ a <+> b <> parens (mconcat $ punctuate comma cs) <> braces (mconcat $ punctuate semi ds)
+      return $ block (a <+> b <> parens (mconcat $ punctuate comma cs)) $ sep (punctuate semi ds)
 
 instance PrintAst a => PrintAst (Maybe a) where
   printNode Nothing = return empty
@@ -93,3 +98,6 @@ instance PrintAst Type where
     TIntPtr -> "int *"
     TChar -> "char"
     TCharPtr -> "char *"
+
+instance PrintAst AstInstruction where
+  printNode x = return $ PP.text $ map toLower $ show x

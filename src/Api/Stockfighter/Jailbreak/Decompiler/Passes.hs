@@ -32,15 +32,15 @@ parseSymbol symbolS =
 
 parseInstruction :: Instruction -> AstInstruction
 parseInstruction instruction =
-  let arg_dest = RRegister $ dest instruction
-      arg_src = RRegister $ src instruction
-      arg_imm8 = Imm8 $ fromJust $ a instruction
+  let arg_dest = Register $ dest instruction
+      arg_src = Register $ src instruction
+      arg_imm8 = Imm8 $ case a instruction of Just x -> x
       arg_imm16 = Imm16 $ k instruction
       arg_imm32 = Imm32 $ k instruction
       arg_relptr = RelPtr $ k instruction
       arg_absptr = AbsPtr $ k instruction
       arg_bitidx = BitIdx $ b instruction
-      arg_op = Imm8 $ fromJust $ q instruction
+      arg_op = Imm8 $ case q instruction of Just x -> x
       absptr :: (AbsPtr -> AstInstruction) -> AstInstruction
       absptr f = f arg_absptr
       relptr :: (RelPtr -> AstInstruction) -> AstInstruction
@@ -100,7 +100,7 @@ parseInstruction instruction =
         ("sbic",  reg_bit Sbic),
         ("sbis",  reg_bit Sbis),
         ("sbrc",  reg_bit Sbrc),
-        ("sbrcs", reg_bit Sbrcs),
+        ("sbrs",  reg_bit Sbrs),
         ("cpse",  reg_reg Cpse),
         ("bld",   reg_bit Bld),
         ("bst",   reg_bit Bst),
@@ -125,16 +125,20 @@ parseInstruction instruction =
         ("dec",   Dec arg_dest),
         ("ldx",   Ldx arg_dest),
         ("ldxp",  Ldxp arg_dest),
+        ("ldxm",  Ldxm arg_dest),
         ("ldy",   Ldy arg_dest),
         ("ldyp",  Ldyp arg_dest),
+        ("ldym",  Ldym arg_dest),
         ("ldz",   Ldz arg_dest),
         ("ldzp",  Ldzp arg_dest),
+        ("ldzm",  Ldzm arg_dest),
         ("lds",   reg_imm16 Lds),
         ("lddx",  reg_op Lddx),
         ("lddy",  reg_op Lddy),
         ("lddz",  reg_op Lddz),
         ("stx",   Stx arg_src),
         ("stxp",  Stxp arg_src),
+        ("stxm",  Stxm arg_src),
         ("sty",   Sty arg_src),
         ("sts",   imm16_reg Sts),
         ("sty",   Sty arg_src),
@@ -158,10 +162,18 @@ parseInstruction instruction =
         ("rol",   Rol arg_dest),
         ("lsr",   Lsr arg_dest),
         ("asr",   Asr arg_dest),
-        ("swap",  Swap arg_dest)
+        ("swap",  Swap arg_dest),
+        ("mul",   reg_reg Mul),
+        ("break", Break),
+        ("reti",  Reti),
+        ("unknown", Unknown),
+        ("nop",     Nop)
         ]
       tableMap = Map.fromList table
-  in fromJust $ Map.lookup (mnem instruction) tableMap
+      mnemonic = mnem instruction
+  in case Map.lookup mnemonic tableMap of
+    Nothing -> Prelude.error $ "Unknown mnemonic: " ++ T.unpack mnemonic
+    Just x -> x
 
 -- | Groups instructions by their symbol attribute, adding entries in the global symbol table
 groupBySymbol :: Pass
@@ -177,7 +189,7 @@ groupBySymbol = do
         in (newIndexBase + i, sym, symbolIStripped : instructions)
   let newFunctions = M.fromList $ map (\(a,b,c) -> (a,b)) split_groups
   let statements = flip map split_groups $ \(idx, sym, instructions) ->
-        SFunction TVoid sym [] [ SAsm instructions ] 
+        SFunction TVoid sym [] [ SAsm $ map parseInstruction instructions ] 
   ctx_functions <>= Table newFunctions (M.size newFunctions)
   ctx_assembly .= [] -- No more free-floating assembly
   return statements

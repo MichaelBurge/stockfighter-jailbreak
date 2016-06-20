@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs,StandaloneDeriving,DataKinds,TemplateHaskell #-}
+{-# LANGUAGE GADTs,StandaloneDeriving,DataKinds,TemplateHaskell,DeriveDataTypeable #-}
 
 module Api.Stockfighter.Jailbreak.Decompiler.AST where
 
@@ -9,16 +9,21 @@ import qualified Data.Text as T
 
 import Control.Lens.TH
 import Control.Monad.Trans.Reader
+import Data.Data
 import Data.Monoid
+import Data.Typeable
+import Numeric
 import Text.PrettyPrint hiding ((<>))
+import Text.Printf
 
 newtype FunctionId = FunctionId Int deriving (Show)
 newtype VariableId = VariableId Int deriving (Show)
-newtype Register = RRegister Int
-                 deriving (Show)
+newtype Register = Register Int
+instance Show Register where
+  show (Register id) = "r" ++ show id
 
-regJunk = RRegister 0
-regZero = RRegister 1
+regJunk = Register 0
+regZero = Register 1
 
 data Reg16 = RX
            | RY
@@ -26,9 +31,9 @@ data Reg16 = RX
            deriving (Show)
 
 regPairs :: Reg16 -> (Register, Register)
-regPairs RX = (RRegister 26, RRegister 27)
-regPairs RY = (RRegister 28, RRegister 29)
-regPairs RZ = (RRegister 30, RRegister 31)
+regPairs RX = (Register 26, Register 27)
+regPairs RY = (Register 28, Register 29)
+regPairs RZ = (Register 30, Register 31)
 
 data RegOp = RegOpUnchanged
            | RegOpInc
@@ -36,18 +41,34 @@ data RegOp = RegOpUnchanged
            | RegOpPlus Int
            | RegOpMinus Int
            deriving (Show)
-                    
-data Reg16Ex = Reg16Ex {
-  reg16ex_op    :: RegOp,
-  reg16ex_reg16 :: Reg16
-  } deriving (Show)
 
-newtype AbsPtr = AbsPtr Int deriving (Show)
-newtype RelPtr = RelPtr Int deriving (Show)
-newtype Imm32 = Imm32 Int deriving (Show)
-newtype Imm16 = Imm16 Int deriving (Show)
-newtype Imm8 = Imm8 Int deriving (Show)
-newtype BitIdx = BitIdx Int deriving (Show)
+newtype AbsPtr = AbsPtr Int
+instance Show AbsPtr where
+  show (AbsPtr id) = printf "0x%08x" id
+
+newtype RelPtr = RelPtr Int
+instance Show RelPtr where
+  show (RelPtr id) =
+    let adjusted = if id > 32767
+                   then id - 65536
+                   else id
+    in "." ++ show adjusted
+
+newtype Imm32 = Imm32 Int
+instance Show Imm32 where
+  show (Imm32 id) = printf "0x%08x" id
+
+newtype Imm16 = Imm16 Int
+instance Show Imm16 where
+  show (Imm16 id) = printf "0x%04x" id
+
+newtype Imm8 = Imm8 Int
+instance Show Imm8 where
+  show (Imm8 id) = printf "0x%02x" id
+
+newtype BitIdx = BitIdx Int
+instance Show BitIdx where
+  show (BitIdx id) = show id
 
 data Symbol = Symbol {
   _sym_symbol :: T.Text,
@@ -147,7 +168,7 @@ data AstInstruction = Mov Register Register
                     | Sbic Register BitIdx
                     | Sbis Register BitIdx
                     | Sbrc Register BitIdx
-                    | Sbrcs Register BitIdx
+                    | Sbrs Register BitIdx
                     | Cpse Register Register
                       -- T Flag
                     | Bld Register BitIdx
@@ -179,10 +200,13 @@ data AstInstruction = Mov Register Register
                       -- Loads
                     | Ldx Register
                     | Ldxp Register
+                    | Ldxm Register
                     | Ldy Register
                     | Ldyp Register
+                    | Ldym Register
                     | Ldz Register
                     | Ldzp Register
+                    | Ldzm Register
                     | Lds Register Imm16
                     | Lddx Register Imm8
                     | Lddy Register Imm8
@@ -192,6 +216,7 @@ data AstInstruction = Mov Register Register
                     | Sty Register
                     | Stz Register
                     | Stxp Register
+                    | Stxm Register
                     | Styp Imm8 Register
                     | Stzp Register
                     | Sts Imm16 Register
@@ -217,12 +242,18 @@ data AstInstruction = Mov Register Register
                     | Lsl Register
                     | Asr Register
                     | Swap Register
+                      -- Undocumented
+                    | Mul Register Register
+                    | Break
+                    | Reti
+                    | Unknown
+                    | Nop
                     deriving (Show)
 
 data Statement where
   SAssign :: VariableId -> Expression -> Statement
   SGoto :: VariableId -> Statement
-  SAsm :: [ Instruction ] -> Statement
+  SAsm :: [ AstInstruction ] -> Statement
   SVariable :: VariableId -> Type -> Maybe Expression -> Statement
   SFunction :: Type -> Symbol -> [ Statement ] -> [ Statement ] -> Statement
 
