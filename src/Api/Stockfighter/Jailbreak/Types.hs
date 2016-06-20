@@ -15,6 +15,8 @@ import qualified Data.Text.Lazy.Encoding as TL
 
 type ApiKey = T.Text
 newtype HexString = HexString T.Text deriving (Generic, Show)
+type Addr = Int
+
 
 instance ToJSON HexString where
 instance FromJSON HexString where

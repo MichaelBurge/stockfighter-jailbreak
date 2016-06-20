@@ -4,13 +4,16 @@ module Main where
 import Prelude as P
 
 import Api.Stockfighter.Jailbreak
+import Api.Stockfighter.Jailbreak.Decompiler
 import qualified Api.Stockfighter.Jailbreak as JB
 
 import Control.Monad
+import Control.Monad.Trans.Reader
 import Data.Aeson (decode,encode,eitherDecode)
 import Data.List (lookup)
 import Data.Monoid ((<>))
 import System.Environment
+import Text.PrettyPrint (render)
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
@@ -30,7 +33,8 @@ commandTree = CommandTree [
       ("status", Command $ const command_device_status),
       ("program", CommandTree [
           ("fetch", Command command_device_program_fetch),
-          ("disassemble", Command command_device_program_disassemble)
+          ("disassemble", Command command_device_program_disassemble),
+          ("decompile", Command command_device_program_decompile)
           ]),
       ("start", Command command_device_start),
       ("restart", Command command_device_restart),
@@ -70,7 +74,8 @@ command_device_program_fetch args = case args of
       result <- unsafeInvokeApi $ flip get_device_program core
       BSL.putStr result
 
-command_device_program_disassemble args = case args :: [T.Text]of
+withAssemblyFile :: Args -> ([Instruction] -> IO ()) -> IO ()
+withAssemblyFile args action = case args of
   [] -> P.error "Expected exactly 1 argument(filename); found 0"
   [x] -> do
     contents <- BSL.readFile $ T.unpack x
@@ -78,13 +83,16 @@ command_device_program_disassemble args = case args :: [T.Text]of
     case eInstructions of
       Left err -> putStrLn $ "Error decoding: " ++ err
       Right instructions -> do
-        putStrLn $ "Number of Instructions: " ++ show (length (instructions :: [Instruction]))
-        forM_ instructions $ \Instruction{..} -> do
-          case symbol of
-            Nothing -> do
-              T.putStrLn $ (showt offset) <> ":\t\t" <> dump
-            Just x -> T.putStrLn x
+        action instructions
 
+command_device_program_disassemble args = withAssemblyFile args $ \instructions -> do
+  putStrLn $ "Number of Instructions: " ++ show (length (instructions :: [Instruction]))
+  forM_ instructions $ putStrLn . render . flip runReader mempty . printNode
+
+command_device_program_decompile args = withAssemblyFile args $ \instructions -> do
+  (statements, context) <- decompile instructions
+  print_ast statements
+  
 command_device_start _ = do
   result <- unsafeInvokeApi post_device_start
   putStrLn $ show result
