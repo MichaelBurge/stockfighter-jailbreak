@@ -140,7 +140,7 @@ data AstInstruction = Mov Register Register
                     | Sbci Register Imm32
                       -- IO load/store
                     | In Register Imm32
-                    | Out Imm32 Register
+                    | Out Imm8 Register
                     | Sbi Register BitIdx
                     | Cbi Register BitIdx
                       -- Conditional Skip
@@ -177,16 +177,29 @@ data AstInstruction = Mov Register Register
                     | Inc Register
                     | Dec Register
                       -- Loads
-                    | Ld Register Reg16Ex
+                    | Ldx Register
+                    | Ldxp Register
+                    | Ldy Register
+                    | Ldyp Register
+                    | Ldz Register
+                    | Ldzp Register
                     | Lds Register Imm16
-                    | Ldd Register Reg16Ex
+                    | Lddx Register Imm8
+                    | Lddy Register Imm8
+                    | Lddz Register Imm8
                       -- Stores
-                    | St Reg16Ex Register
+                    | Stx Register
+                    | Sty Register
+                    | Stz Register
+                    | Stxp Register
+                    | Styp Imm8 Register
+                    | Stzp Register
                     | Sts Imm16 Register
-                    | Std Reg16Ex Register
+                    | Stdz Imm8 Register
                       -- Data/Program Transfer
-                    | Lpm Register Reg16
-                    | Spm Reg16 Register
+                    | Lpmz Register
+                    | Lpmzp Register
+                    | Spm
                       -- Function calls
                     | Call Imm32
                     | Rcall RelPtr
@@ -198,7 +211,7 @@ data AstInstruction = Mov Register Register
                     | And Register Register
                     | Eor Register Register
                     | Or Register Register
-                    | Ror  Register
+                    | Ror Register
                     | Rol Register
                     | Lsr Register
                     | Lsl Register

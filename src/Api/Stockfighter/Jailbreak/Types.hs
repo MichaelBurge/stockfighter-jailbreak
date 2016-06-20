@@ -174,6 +174,8 @@ data Instruction = Instruction {
   k :: Int,
   s :: Int,
   b :: Int,
+  a :: Maybe Int,
+  q :: Maybe Int,
   offset :: Int,
   symbol :: Maybe T.Text,
   dump :: T.Text
