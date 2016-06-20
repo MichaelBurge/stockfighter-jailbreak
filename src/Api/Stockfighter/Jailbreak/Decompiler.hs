@@ -21,6 +21,6 @@ decompile instructions = flip runStateT (mempty { _ctx_assembly = instructions }
 
 print_ast :: [ Statement ] -> IO ()
 print_ast statements = do
-  let result = flip runReader mempty $ mconcat <$> punctuate (PP.text "\n") <$> forM statements printNode
+  let result = flip runReader mempty $ sep <$> forM statements printNode
   putStrLn $ render result
   
