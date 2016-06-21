@@ -147,7 +147,7 @@ instance PrintAst Type where
     TCharPtr -> "char *"
 
 instance PrintAst AstInstruction where
-  printNode x = return $ PP.text $ map toLower $ show x
+  printNode x = return $ PP.text $ (\(cons, rest) -> map toLower cons ++ rest) $ span (/= ' ') $ show x
 
 instance PrintAst InstructionEx where
   printNode (InstructionEx _ x) = printNode x

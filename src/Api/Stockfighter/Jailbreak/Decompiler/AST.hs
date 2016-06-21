@@ -30,7 +30,13 @@ data Reg16 = R24
            | RX
            | RY
            | RZ
-           deriving (Eq, Show, Data, Typeable)
+           deriving (Eq, Data, Typeable)
+
+instance Show Reg16 where
+  show R24 = "R24"
+  show RX = "X"
+  show RY = "Y"
+  show RZ = "Z"
 
 regPairs :: Reg16 -> (Register, Register)
 regPairs R24 = (Register 24, Register 25)
