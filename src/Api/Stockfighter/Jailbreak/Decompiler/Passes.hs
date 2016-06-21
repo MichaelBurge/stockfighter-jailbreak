@@ -240,7 +240,7 @@ pass_replaceBranchesWithJumps = do
 annotation :: Lens' Statement StatementAnnotation
 annotation =
   let getter = \case
-        (SAssign a _ _) -> a
+        (SExpression a _) -> a
         (SLabel a _) -> a
         (SGoto a _) -> a
         (SAsm a _) -> a
@@ -249,7 +249,7 @@ annotation =
         (SFunction a _ _ _ _) -> a
         (SIfElse a _ _ _) -> a
       setter a x = case a of
-        (SAssign a b c) -> SAssign x b c
+        (SExpression a b) -> SExpression x b
         (SLabel a b) -> SLabel x b
         (SGoto a b) -> SGoto x b
         (SAsm a b) -> SAsm x b
@@ -303,7 +303,7 @@ normalizeStatement stat =
         SBlock _ children -> children
         _ -> [ stmt ]
   in case stat of
-    SAssign _ _ _ -> stat
+    SExpression _ _ -> stat
     SLabel _ _ -> stat
     SGoto _ _ -> stat
     SAsm _ _ -> stat
@@ -319,7 +319,7 @@ replaceSubtree f stat =
   let rewrite = replaceSubtree f
   in normalizeStatement $ SBlock (stat ^. annotation) $ f $
      case stat of
-       SAssign _ _ _ -> stat
+       SExpression _ _ -> stat
        SLabel _ _ -> stat
        SGoto _ _ -> stat
        SAsm _ _ -> stat
@@ -339,7 +339,7 @@ replaceGroup :: Int -> ([Statement] -> Maybe [Statement]) -> Statement -> Statem
 replaceGroup 2 f stat =
   let rewrite = replaceGroup 2 f
   in normalizeStatement $ case stat of
-    SAssign _ _ _ -> stat
+    SExpression _ _ -> stat
     SLabel _ _ -> stat
     SGoto _ _ -> stat
     SAsm _ _ -> stat
@@ -355,6 +355,20 @@ labelAndGotoForRelptr anno (RelPtr o) =
   in ((SLabel (StatementAnnotation (initOff + o) [ ]) labelId),
       (SGoto anno labelId))
 
+replaceSingleInstructions :: Statement -> [ Statement ]
+replaceSingleInstructions stmt = case stmt of
+  SAsm anno (iex_astI -> Lds r imm) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop Dereference $ ELiteral $ LImm16 imm) ]
+  SAsm anno (iex_astI -> Lddz r imm) -> [
+    SExpression anno $ EBinop Assign (EReg8 r) (EUnop Dereference $ EReg16 RZ),
+    SExpression anno $ EBinop AssignPlus (EReg16 RZ) (ELiteral $ LImm8 imm)]
+    
+  _ -> [ stmt ]
+
+pass_replaceSingleInstructions :: Pass
+pass_replaceSingleInstructions = do
+  ctx <- get
+  ctx_statements %= map (replaceSubtree replaceSingleInstructions)
+  return ()
 
 replaceLocalJumpsWithGotos :: Statement -> [ Statement ]
 replaceLocalJumpsWithGotos stat =
@@ -376,6 +390,7 @@ replaceBranchesWithJumps stmts =
       let (label, goto) = labelAndGotoForRelptr y relptr
       in Just [ SIfElse x (EUnop Dereference $ EReg16 r16) goto (SBlock y []) ]
     _ -> Nothing
+
 
 getRegisterPair :: Register -> Register -> Maybe Reg16
 getRegisterPair r1 r2 = case (r1,r2) of

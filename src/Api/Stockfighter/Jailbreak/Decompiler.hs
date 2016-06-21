@@ -23,6 +23,7 @@ decompile instructions =
     pass_groupBySymbol
     pass_replaceLocalJumpsWithGotos
     pass_replaceBranchesWithJumps
+    pass_replaceSingleInstructions
 
 print_ast :: [ Statement ] -> IO ()
 print_ast statements = do

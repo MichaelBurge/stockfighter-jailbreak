@@ -26,6 +26,15 @@ instance PrintAst VariableId where
 instance PrintAst LabelId where
   printNode (LabelId id) = return $ PP.text "label" <> PP.int id
 
+instance PrintAst Imm8 where
+  printNode (Imm8 x) = return $ PP.int x
+  
+instance PrintAst Imm16 where
+  printNode (Imm16 x) = return $ PP.int x
+
+instance PrintAst Imm32 where
+  printNode (Imm32 x) = return $ PP.int x
+
 instance PrintAst Unop where
   printNode x = case x of
     Negate -> return $ PP.text "-"
@@ -39,6 +48,11 @@ instance PrintAst Binop where
     Multiply -> "*"
     Divide -> "/"
     Mod -> "%"
+    Assign -> "="
+    AssignPlus -> "+="
+
+instance PrintAst Register where
+  printNode (Register x) = return $ PP.text $ "r" ++ show x
 
 instance PrintAst Reg16 where
   printNode x = return $ PP.text $ case x of
@@ -47,22 +61,29 @@ instance PrintAst Reg16 where
     RY  -> "Y"
     RZ  -> "Z"
 
+instance PrintAst Literal where
+  printNode x = case x of
+    LImm8 x -> printNode x
+    LImm16 x -> printNode x
+    LImm32 x -> printNode x
+
 instance PrintAst Expression where
   printNode x = case x of
-    ELiteral y -> return $ int y
+    ELiteral y -> printNode y
     EUnop unop exp -> do
       a <- printNode unop
       b <- printNode exp
-      return $ parens $ a <> b
+      return $ a <> b
     EBinop binop exp1 exp2 -> do
       a <- printNode exp1
       b <- printNode binop
       c <- printNode exp2
-      return $ parens $ a <> b <> c
+      return $ a <+> b <+> c
     ECall symbol args -> do
       a <- printNode symbol
       xs <- mapM printNode args
       return $ a <> parens ( mconcat $ punctuate comma xs )
+    EReg8 r8 -> printNode r8
     EReg16 r16 -> printNode r16
 
 instance PrintAst Instruction where
@@ -74,10 +95,9 @@ instance PrintAst Instruction where
       
 instance PrintAst (StatementEx a) where
   printNode x = case x of
-    SAssign _ varId initializer -> do
-      a <- printNode varId
-      b <- printNode initializer
-      return $ a <+> PP.text "=" <+> b
+    SExpression _ x -> do
+      a <- printNode x
+      return $ a
     SLabel _ x -> printNode x
     SGoto _ varId -> do
       a <- printNode varId

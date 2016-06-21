@@ -112,13 +112,21 @@ data Binop = Plus
            | Multiply
            | Divide
            | Mod
+           | Assign
+           | AssignPlus
+           deriving (Show, Data, Typeable)
+
+data Literal = LImm8 Imm8
+             | LImm16 Imm16
+             | LImm32 Imm32
              deriving (Show, Data, Typeable)
 
 data Expression where
-  ELiteral :: Int -> Expression
+  ELiteral :: Literal -> Expression
   EUnop :: Unop -> Expression -> Expression
   EBinop :: Binop -> Expression -> Expression -> Expression
   ECall :: Symbol -> [ Expression ] -> Expression
+  EReg8 :: Register -> Expression
   EReg16 :: Reg16 -> Expression
 
 deriving instance Show Expression 
@@ -276,14 +284,14 @@ instance Ord StatementAnnotation where
   compare (StatementAnnotation{stmtAnno_offset = offset1}) (StatementAnnotation{stmtAnno_offset = offset2}) = offset1 `compare` offset2
 
 data StatementEx a where
-  SAssign   :: Show a => a -> VariableId -> Expression -> StatementEx a
-  SLabel    :: Show a => a -> LabelId -> StatementEx a
-  SGoto     :: Show a => a -> LabelId -> StatementEx a
-  SAsm      :: Show a => a -> InstructionEx -> StatementEx a
-  SBlock    :: Show a => a -> [ StatementEx a ] -> StatementEx a
-  SVariable :: Show a => a -> VariableId -> Type -> Maybe Expression -> StatementEx a
-  SFunction :: Show a => a -> Type -> Symbol -> [ StatementEx a] -> StatementEx a -> StatementEx a
-  SIfElse   :: Show a => a -> Expression -> StatementEx a -> StatementEx a -> StatementEx a
+  SExpression :: Show a => a -> Expression -> StatementEx a
+  SLabel      :: Show a => a -> LabelId -> StatementEx a
+  SGoto       :: Show a => a -> LabelId -> StatementEx a
+  SAsm        :: Show a => a -> InstructionEx -> StatementEx a
+  SBlock      :: Show a => a -> [ StatementEx a ] -> StatementEx a
+  SVariable   :: Show a => a -> VariableId -> Type -> Maybe Expression -> StatementEx a
+  SFunction   :: Show a => a -> Type -> Symbol -> [ StatementEx a] -> StatementEx a -> StatementEx a
+  SIfElse     :: Show a => a -> Expression -> StatementEx a -> StatementEx a -> StatementEx a
 
 
 deriving instance Show (StatementEx a)
