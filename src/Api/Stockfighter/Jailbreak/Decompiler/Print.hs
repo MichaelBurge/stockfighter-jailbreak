@@ -29,6 +29,7 @@ instance PrintAst LabelId where
 instance PrintAst Unop where
   printNode x = case x of
     Negate -> return $ PP.text "-"
+    Dereference -> return $ PP.text "*"
 
 instance PrintAst Binop where
   printNode x = return $ PP.text $ case x of
@@ -37,6 +38,13 @@ instance PrintAst Binop where
     Multiply -> "*"
     Divide -> "/"
     Mod -> "%"
+
+instance PrintAst Reg16 where
+  printNode x = return $ PP.text $ case x of
+    R24 -> "R24"
+    RX  -> "X"
+    RY  -> "Y"
+    RZ  -> "Z"
 
 instance PrintAst Expression where
   printNode x = case x of
@@ -54,6 +62,7 @@ instance PrintAst Expression where
       a <- printNode symbol
       xs <- mapM printNode args
       return $ a <> parens ( mconcat $ punctuate comma xs )
+    EReg16 r16 -> printNode r16
 
 instance PrintAst Instruction where
   printNode = \Instruction{..} -> do
@@ -93,6 +102,16 @@ instance PrintAst (StatementEx a) where
       cs <- mapM printNode args
       d <- printNode body
       return $ sep [ a <+> b <> parens (mconcat $ punctuate comma cs),  d ]
+    SIfElse _ cond x y -> do
+      a <- printNode cond
+      b <- printNode x
+      let ifPart = PP.text "if" <+> a $+$ hang empty 4 b
+      case y of
+        SBlock _ [] -> do
+          return ifPart
+        _ -> do
+          c <- printNode y
+          return $ ifPart <+> PP.text "else" <+> c
 
 instance PrintAst a => PrintAst (Maybe a) where
   printNode Nothing = return empty

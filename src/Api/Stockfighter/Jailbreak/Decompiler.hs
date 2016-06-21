@@ -21,7 +21,8 @@ decompile instructions =
       context = mempty { _ctx_statements = map iex_asm iexs }
   in flip execStateT context $ do
     pass_groupBySymbol
-    pass_replaceLocalJumpsWithGotos2
+    pass_replaceLocalJumpsWithGotos
+    pass_replaceBranchesWithJumps
 
 print_ast :: [ Statement ] -> IO ()
 print_ast statements = do

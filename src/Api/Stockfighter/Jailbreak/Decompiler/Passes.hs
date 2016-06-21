@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings,DuplicateRecordFields,OverloadedLabels,InstanceSigs,RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings,DuplicateRecordFields,OverloadedLabels,InstanceSigs,RecordWildCards,ViewPatterns #-}
 
 module Api.Stockfighter.Jailbreak.Decompiler.Passes where
 
@@ -225,46 +225,16 @@ spliceListPoints elems splicePoints = case splicePoints of
     let (chunk, remainder) = span (\x -> fst x < sp) elems
     in chunk : spliceListPoints remainder sps
 
--- replaceLocalJumpsWithGotos :: [ InstructionEx ] -> [ Statement ]
--- replaceLocalJumpsWithGotos [] = []
--- replaceLocalJumpsWithGotos instructions@(firstInstruction:_) =
---   let iex_offset (InstructionEx{iex_i = Instruction{offset = offset}}) = offset
---       initialOffset = iex_offset firstInstruction
---       relativeOffset i = iex_offset i - initialOffset
---       relativeOffsets = flip map instructions $ \i -> (relativeOffset i, i)
---       getSplicePoint instruction = case instructionEx_astInstruction instruction of
---         Rjmp (RelPtr x) ->
---           let labelId = LabelId (relativeOffset instruction)
---           in [(relativeOffset instruction, SGoto labelId),
---               (relativeOffset instruction + x, SLabel labelId)]
---         _ -> []
---       splicePoints = concatMap getSplicePoint instructions
---       chunks = spliceListPoints relativeOffsets $ map fst splicePoints
---       statements = flip map chunks $ \chunk ->
---         let wasSpliced x = case instructionEx_astInstruction x of
---               Rjmp _ -> True
---               _ -> False
---             asm = SAsm $ filter (not . wasSpliced) $ map snd chunk
---         in case chunk of
---           [] -> (initialOffset, asm)
---           (i:_) -> (fst i, asm)
---   in map snd $ sortBy (compare `on` fst) $ splicePoints ++ statements
-
--- pass_replaceLocalJumpsWithGotos :: Pass
--- pass_replaceLocalJumpsWithGotos = do
---   ctx <- get
---   let processOneStatement s = case s of
---         f@(SFunction a b c d body) -> SFunction a b c d $ flip concatMap body $ \s -> case s of
---           SAsm d iexs -> replaceLocalJumpsWithGotos iexs
---           x -> [ x ]
---         x -> x
---   ctx_statements %= map processOneStatement
---   return ()
-
-pass_replaceLocalJumpsWithGotos2 :: Pass
-pass_replaceLocalJumpsWithGotos2 = do
+pass_replaceLocalJumpsWithGotos :: Pass
+pass_replaceLocalJumpsWithGotos = do
   ctx <- get
-  ctx_statements %= map (replaceSubtree replaceRelativeJumpsWithGotos2)
+  ctx_statements %= map (replaceSubtree replaceLocalJumpsWithGotos)
+  return ()
+
+pass_replaceBranchesWithJumps :: Pass
+pass_replaceBranchesWithJumps = do
+  ctx <- get
+  ctx_statements %= map (replaceGroup 2 replaceBranchesWithJumps)
   return ()
 
 annotation :: Lens' Statement StatementAnnotation
@@ -327,26 +297,6 @@ annotation =
 --     SFunction a b c ds e -> SFunction <$> f a <*> b <*> c <*> traverse (traverse f) d <*> traverse f e
 --     SIfElse a b c d -> SIfElse <$> f a <*> b <*> traverse f c <*> traverse f d
 
--- liftStat :: Iso' Statement (StatementEx Statement)
--- liftStat =
---   let forward :: Statement -> StatementEx Statement
---       forward stat = case stat of
---         SAssign a b c -> SAssign stat b c
---         SLabel a b -> SLabel stat b
---         SGoto a b -> SGoto stat b
---         SBlock a xs -> SBlock stat xs
---         SVariable a b c d -> SVariable stat b c d
---         SFunction a b c ds e -> SFunction stat b c ds e
---         SIfElse a b c d -> SIfElse stat b c d
---       backward :: StatementEx Statement -> Statement
---       backward stat = stat ^. annotation
---   in iso forward backward
-
--- replaceSubtree :: (Statement -> [ Statement ]) -> Statement -> [ Statement ]
--- replaceSubtree f stat = flip traverse stat $ \anno ->
-  
---   (sort . f) stat
-
 normalizeStatement :: Statement -> Statement
 normalizeStatement stat =
   let expandChild stmt = case stmt of
@@ -378,14 +328,50 @@ replaceSubtree f stat =
        SFunction a b c ds e -> SFunction a b c (map rewrite ds) (rewrite e)
        SIfElse a b c d -> SIfElse a b (rewrite c) (rewrite d)
 
-replaceRelativeJumpsWithGotos2 :: Statement -> [ Statement ]
-replaceRelativeJumpsWithGotos2 stat = case stat of
-  SAsm anno instr@(InstructionEx { iex_astI = Rjmp (RelPtr o) }) ->
-    let initOff = stmtAnno_offset anno
-        labelId = LabelId $ initOff + o
-    in [ (SLabel (StatementAnnotation (initOff + o) [ ]) labelId),
-         (SGoto (StatementAnnotation initOff [ instr ]) labelId)]
-  _ -> [ stat ]
+replace2 :: ([a] -> Maybe [a]) -> [a] -> [a]
+replace2 f [] = []
+replace2 f [x] = [x]
+replace2 f (a:b:xs) = case f [a,b] of
+  Nothing -> a : replace2 f (b:xs)
+  Just ys -> ys ++ replace2 f xs
+
+replaceGroup :: Int -> ([Statement] -> Maybe [Statement]) -> Statement -> Statement
+replaceGroup 2 f stat =
+  let rewrite = replaceGroup 2 f
+  in normalizeStatement $ case stat of
+    SAssign _ _ _ -> stat
+    SLabel _ _ -> stat
+    SGoto _ _ -> stat
+    SAsm _ _ -> stat
+    SBlock anno children -> SBlock anno $ replace2 f $ map rewrite children
+    SVariable _ _ _ _ -> stat
+    SFunction a b c ds e -> SFunction a b c (replace2 f $ map rewrite ds) (rewrite e)
+    SIfElse a b c d -> SIfElse a b (rewrite c) (rewrite d)     
+
+labelAndGotoForRelptr :: StatementAnnotation -> RelPtr -> (Statement, Statement)
+labelAndGotoForRelptr anno (RelPtr o) =
+  let initOff = stmtAnno_offset anno
+      labelId = LabelId $ initOff + o
+  in ((SLabel (StatementAnnotation (initOff + o) [ ]) labelId),
+      (SGoto anno labelId))
+
+
+replaceLocalJumpsWithGotos :: Statement -> [ Statement ]
+replaceLocalJumpsWithGotos stat =
+  let emitForRelptr anno relptr = let (a,b) = labelAndGotoForRelptr anno relptr in [ a, b]
+  in case stat of
+    SAsm anno instr@(InstructionEx { iex_astI = Rjmp relptr }) -> emitForRelptr anno relptr
+    _ -> [ stat ]
+
+replaceBranchesWithJumps :: [Statement] -> Maybe [ Statement ]
+replaceBranchesWithJumps stmts = case stmts of
+  (SAsm x (iex_astI -> Or r1 r2): SAsm y (iex_astI -> Breq relptr):[]) -> 
+    case getRegisterPair r1 r2 of
+    Nothing -> Nothing
+    Just r16 ->
+      let (label, goto) = labelAndGotoForRelptr y relptr
+      in Just [ SIfElse x (EUnop Dereference $ EReg16 r16) goto (SBlock y []) ]
+  _ -> Nothing
 
 getRegisterPair :: Register -> Register -> Maybe Reg16
 getRegisterPair r1 r2 = case (r1,r2) of
@@ -394,14 +380,3 @@ getRegisterPair r1 r2 = case (r1,r2) of
   (Register 28, Register 29) -> Just RY
   (Register 30, Register 31) -> Just RZ
   _ -> Nothing
-  
--- pass_pruneEmptyAssemblyBlocks :: Pass
--- pass_pruneEmptyAssemblyBlocks = do
---   replaceInstructionPatternWithStatements 2 $ \case
---     [ InstructionEx { iex_astI = Or r1 r2 },
---       i2@InstructionEx { iex_astI = Breq relptr } ] -> case getRegisterPair r1 r2 of
---       Nothing -> Nothing
---       Just r16 -> Just [
---         SIfElse (EUnop Dereference $ EReg16 r16) ( SAsm $ i2 { iex_astI = Rjmp relptr } ) (SBlock [])
---         ]
---     _ -> Nothing
