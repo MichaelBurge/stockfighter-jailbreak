@@ -364,14 +364,18 @@ replaceLocalJumpsWithGotos stat =
     _ -> [ stat ]
 
 replaceBranchesWithJumps :: [Statement] -> Maybe [ Statement ]
-replaceBranchesWithJumps stmts = case stmts of
-  (SAsm x (iex_astI -> Or r1 r2): SAsm y (iex_astI -> Breq relptr):[]) -> 
-    case getRegisterPair r1 r2 of
-    Nothing -> Nothing
-    Just r16 ->
+replaceBranchesWithJumps stmts =
+  let withPair r1 r2 f = case getRegisterPair r1 r2 of
+        Nothing -> Nothing
+        Just r16 -> f r16
+  in case stmts of
+    (SAsm x (iex_astI -> Or r1 r2): SAsm y (iex_astI -> Breq relptr):[]) -> withPair r1 r2 $ \r16 ->
+      let (label, goto) = labelAndGotoForRelptr y relptr
+      in Just [ SIfElse x (EUnop Not $ EUnop Dereference $ EReg16 r16) goto (SBlock y []) ]
+    (SAsm x (iex_astI -> Or r1 r2): SAsm y (iex_astI -> Brne relptr):[]) -> withPair r1 r2 $ \r16 ->
       let (label, goto) = labelAndGotoForRelptr y relptr
       in Just [ SIfElse x (EUnop Dereference $ EReg16 r16) goto (SBlock y []) ]
-  _ -> Nothing
+    _ -> Nothing
 
 getRegisterPair :: Register -> Register -> Maybe Reg16
 getRegisterPair r1 r2 = case (r1,r2) of

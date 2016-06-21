@@ -29,6 +29,7 @@ instance PrintAst LabelId where
 instance PrintAst Unop where
   printNode x = case x of
     Negate -> return $ PP.text "-"
+    Not -> return $ PP.text "!"
     Dereference -> return $ PP.text "*"
 
 instance PrintAst Binop where

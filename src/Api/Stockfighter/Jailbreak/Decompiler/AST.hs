@@ -103,6 +103,7 @@ class PrintAst a where
   printNode :: a -> Reader Context Doc
 
 data Unop = Negate
+          | Not
           | Dereference
           deriving (Show, Data, Typeable)
 
