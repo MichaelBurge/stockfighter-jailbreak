@@ -16,8 +16,8 @@ import Numeric
 import Text.PrettyPrint hiding ((<>))
 import Text.Printf
 
-newtype FunctionId = FunctionId Int deriving (Show, Data, Typeable)
-newtype LabelId = LabelId Int deriving (Show, Data, Typeable)
+newtype FunctionId = FunctionId Int deriving (Show, Eq, Data, Typeable)
+newtype LabelId = LabelId Int deriving (Show, Eq, Data, Typeable)
 newtype VariableId = VariableId Int deriving (Eq, Show, Data, Typeable)
 newtype Register = Register Int deriving (Eq, Data, Typeable)
 instance Show Register where
@@ -99,7 +99,7 @@ instance Show BitIdx where
 data Symbol = Symbol {
   _sym_symbol :: T.Text,
   _sym_offset :: Int
-  } deriving (Show, Data, Typeable)
+  } deriving (Show, Eq, Data, Typeable)
 
 data Table a = Table {
   _elements :: M.IntMap a,
@@ -128,7 +128,8 @@ data Unop = Negate
           | Dereference
           | PostIncrement
           | PreIncrement
-          deriving (Show, Data, Typeable)
+          | BitComplement
+          deriving (Show, Eq, Data, Typeable)
 
 data Binop = Plus
            | Subtract
@@ -136,15 +137,26 @@ data Binop = Plus
            | Divide
            | Mod
            | BitAnd
+           | BitOr
+           | BitXor
+           | BitShiftRight
+           | BitShiftLeft
            | Assign
            | AssignPlus
            | AssignMinus
-           deriving (Show, Data, Typeable)
+           | AssignMultiply
+           | AssignDivide  
+           | AssignBitXor
+           | AssignBitAnd
+           | AssignBitOr
+           | AssignBitShiftRight
+           | AssignBitShiftLeft
+           deriving (Eq, Show, Data, Typeable)
 
 data Literal = LImm8 Imm8
              | LImm16 Imm16
              | LImm32 Imm32
-             deriving (Show, Data, Typeable)
+             deriving (Eq, Show, Data, Typeable)
 
 data Expression where
   ELiteral :: Literal -> Expression
@@ -154,7 +166,8 @@ data Expression where
   EReg8 :: Register -> Expression
   EReg16 :: Reg16 -> Expression
 
-deriving instance Show Expression 
+deriving instance Show Expression
+deriving instance Eq Expression 
 deriving instance Data Expression
 deriving instance Typeable Expression
 
@@ -166,6 +179,7 @@ data Type where
   TCharPtr :: Type
 
 deriving instance Show Type
+deriving instance Eq Type
 deriving instance Data Type
 deriving instance Typeable Type
 
@@ -309,18 +323,19 @@ instance Ord StatementAnnotation where
   compare (StatementAnnotation{stmtAnno_offset = offset1}) (StatementAnnotation{stmtAnno_offset = offset2}) = offset1 `compare` offset2
 
 data StatementEx a where
-  SExpression :: Show a => a -> Expression -> StatementEx a
-  SLabel      :: Show a => a -> LabelId -> StatementEx a
-  SGoto       :: Show a => a -> LabelId -> StatementEx a
-  SAsm        :: Show a => a -> InstructionEx -> StatementEx a
-  SBlock      :: Show a => a -> [ StatementEx a ] -> StatementEx a
-  SVariable   :: Show a => a -> VariableId -> Type -> Maybe Expression -> StatementEx a
-  SFunction   :: Show a => a -> Type -> Symbol -> [ StatementEx a] -> StatementEx a -> StatementEx a
-  SIfElse     :: Show a => a -> Expression -> StatementEx a -> StatementEx a -> StatementEx a
-  SReturn     :: Show a => a -> Maybe Expression -> StatementEx a
+  SExpression :: (Eq a, Show a) => a -> Expression -> StatementEx a
+  SLabel      :: (Eq a, Show a) => a -> LabelId -> StatementEx a
+  SGoto       :: (Eq a, Show a) => a -> LabelId -> StatementEx a
+  SAsm        :: (Eq a, Show a) => a -> InstructionEx -> StatementEx a
+  SBlock      :: (Eq a, Show a) => a -> [ StatementEx a ] -> StatementEx a
+  SVariable   :: (Eq a, Show a) => a -> VariableId -> Type -> Maybe Expression -> StatementEx a
+  SFunction   :: (Eq a, Show a) => a -> Type -> Symbol -> [ StatementEx a] -> StatementEx a -> StatementEx a
+  SIfElse     :: (Eq a, Show a) => a -> Expression -> StatementEx a -> StatementEx a -> StatementEx a
+  SReturn     :: (Eq a, Show a) => a -> Maybe Expression -> StatementEx a
 
 
 deriving instance Show (StatementEx a)
+deriving instance Eq (StatementEx a)
 -- deriving instance Data (StatementEx a)
 -- deriving instance Typeable (StatementEx a)
 

@@ -43,11 +43,7 @@ parseInstruction instruction =
       arg_relptr = mkRelptr $ k instruction
       arg_absptr = AbsPtr $ k instruction
       arg_bitidx = BitIdx $ b instruction
-      arg_reg16 = case dest instruction of
-        24 -> R24
-        26 -> RX
-        28 -> RY
-        30 -> RZ
+      arg_reg16 = mkReg16 $ dest instruction
       arg_op = Imm8 $ case q instruction of Just x -> x
       absptr :: (AbsPtr -> AstInstruction) -> AstInstruction
       absptr f = f arg_absptr
@@ -59,10 +55,13 @@ parseInstruction instruction =
       reg_imm32 f = f arg_dest arg_imm32
       imm8_reg :: (Imm8 -> Register -> AstInstruction) -> AstInstruction
       imm8_reg f = f arg_imm8 arg_src
+      imm8a_reg f = f arg_imm8a arg_src
       imm16_reg f = f arg_imm16 arg_src
       reg16_imm8 f = f arg_reg16 arg_imm8
       reg_imm16 f = f arg_dest arg_imm16
       reg_imm8 f = f arg_dest arg_imm8
+      reg_imm8a f = f arg_dest arg_imm8a
+      reg16_reg16 f = f (mkReg16 $ dest instruction) (mkReg16 $ src instruction)
       reg_bit :: (Register -> BitIdx -> AstInstruction) -> AstInstruction
       reg_bit f = f arg_src arg_bitidx
       reg_op :: (Register -> Imm8 -> AstInstruction) -> AstInstruction
@@ -103,8 +102,8 @@ parseInstruction instruction =
         ("ori",   reg_imm8 Ori),
         ("subi",  reg_imm8 Subi),
         ("sbci",  reg_imm8 Sbci),
-        ("in",    reg_imm8 In),
-        ("out",   imm8_reg Out),
+        ("in",    reg_imm8a In),
+        ("out",   imm8a_reg Out),
         ("sbi",   reg_bit Sbi),
         ("cbi",   reg_bit Cbi),
         ("sbic",  reg_bit Sbic),
@@ -116,7 +115,7 @@ parseInstruction instruction =
         ("bst",   reg_bit Bst),
         ("adiw",  reg16_imm8 Adiw),
         ("sbiw",  reg16_imm8 Sbiw),
-        ("movw",  reg_reg Movw),
+        ("movw",  reg16_reg16 Movw),
         ("push",  Push arg_src),
         ("pop",   Pop arg_dest),
         ("brcc",  relptr Brcc),
@@ -248,6 +247,7 @@ annotation =
         (SVariable a _ _ _) -> a
         (SFunction a _ _ _ _) -> a
         (SIfElse a _ _ _) -> a
+        (SReturn a _) -> a
       setter a x = case a of
         (SExpression a b) -> SExpression x b
         (SLabel a b) -> SLabel x b
@@ -257,6 +257,7 @@ annotation =
         (SVariable a b c d) -> SVariable x b c d
         (SFunction a b c d e) -> SFunction x b c d e
         (SIfElse a b c d) -> SIfElse x b c d
+        (SReturn a b) -> SReturn x b
   in lens getter setter
 
 -- instance Functor StatementEx where
@@ -313,6 +314,7 @@ normalizeStatement stat =
     SVariable _ _ _ _ -> stat
     SFunction a b c ds e -> SFunction a b c (map normalizeStatement ds) (normalizeStatement e)
     SIfElse a b c d -> SIfElse a b (normalizeStatement c) (normalizeStatement d)
+    SReturn _ _ -> stat
 
 replaceSubtree :: (Statement -> [ Statement ] ) -> Statement -> Statement
 replaceSubtree f stat =
@@ -327,26 +329,29 @@ replaceSubtree f stat =
        SVariable _ _ _ _ -> stat
        SFunction a b c ds e -> SFunction a b c (map rewrite ds) (rewrite e)
        SIfElse a b c d -> SIfElse a b (rewrite c) (rewrite d)
+       SReturn _ _ -> stat
 
-replace2 :: ([a] -> Maybe [a]) -> [a] -> [a]
-replace2 f [] = []
-replace2 f [x] = [x]
-replace2 f (a:b:xs) = case f [a,b] of
-  Nothing -> a : replace2 f (b:xs)
-  Just ys -> ys ++ replace2 f xs
+replace :: Int -> ([a] -> Maybe [a]) -> [a] -> [a]
+replace i f [] = []
+replace i f xs | length xs < i = xs
+replace i f xs = case f $ take i xs of
+  Nothing -> (head xs) : replace i f (tail xs)
+  Just ys -> ys ++ replace i f (drop i xs)
 
 replaceGroup :: Int -> ([Statement] -> Maybe [Statement]) -> Statement -> Statement
-replaceGroup 2 f stat =
-  let rewrite = replaceGroup 2 f
+replaceGroup i f stat =
+  let rewrite = replaceGroup i f
   in normalizeStatement $ case stat of
     SExpression _ _ -> stat
     SLabel _ _ -> stat
     SGoto _ _ -> stat
     SAsm _ _ -> stat
-    SBlock anno children -> SBlock anno $ replace2 f $ map rewrite children
+    SBlock anno children -> SBlock anno $ replace i f $ map rewrite children
     SVariable _ _ _ _ -> stat
-    SFunction a b c ds e -> SFunction a b c (replace2 f $ map rewrite ds) (rewrite e)
-    SIfElse a b c d -> SIfElse a b (rewrite c) (rewrite d)     
+    SFunction a b c ds e -> SFunction a b c (replace i f $ map rewrite ds) (rewrite e)
+    SIfElse a b c d -> SIfElse a b (rewrite c) (rewrite d)
+    SReturn _ _ -> stat
+
 
 labelAndGotoForRelptr :: StatementAnnotation -> RelPtr -> (Statement, Statement)
 labelAndGotoForRelptr anno (RelPtr o) =
@@ -355,13 +360,56 @@ labelAndGotoForRelptr anno (RelPtr o) =
   in ((SLabel (StatementAnnotation (initOff + o) [ ]) labelId),
       (SGoto anno labelId))
 
+eAssign = EBinop Assign
+eAssignPlus = EBinop AssignPlus
+eAssignXor = EBinop AssignBitXor
+eAssignAnd = EBinop AssignBitAnd
+eAssignOr = EBinop AssignBitOr
+eAssignShiftRight = EBinop AssignBitShiftRight
+eAssignShiftLeft = EBinop AssignBitShiftLeft
+ePlus = EBinop Plus
+eMinus = EBinop Subtract
+eSub = EBinop Subtract
+eMultiply = EBinop Multiply
+eDivide = EBinop Divide
+eXor = EBinop BitXor
+eOr = EBinop BitOr
+eAnd = EBinop BitAnd
+eShiftRight = EBinop BitShiftRight
+eShiftLeft = EBinop BitShiftLeft
+eDereference = EUnop Dereference
+
+eImm8 = ELiteral . LImm8
+
 replaceSingleInstructions :: Statement -> [ Statement ]
 replaceSingleInstructions stmt = case stmt of
+  SAsm anno (iex_astI -> Eor r1 r2) | r1 == r2 -> [ SExpression anno $ eAssign (EReg8 r1) (eImm8 $ Imm8 0) ]
+  SAsm anno (iex_astI -> Eor r1 r2) -> [ SExpression anno $ eAssignXor (EReg8 r1) (EReg8 r2) ]
+  SAsm anno (iex_astI -> Andi r imm) -> [ SExpression anno $ eAssignAnd (EReg8 r) (eImm8 imm) ]
+  SAsm anno (iex_astI -> Or r1 r2) -> [ SExpression anno $ eAssignOr (EReg8 r1) (EReg8 r2) ]
+  SAsm anno (iex_astI -> Ori r imm) -> [ SExpression anno $ eAssignOr (EReg8 r) (eImm8 imm) ]
+  SAsm anno (iex_astI -> Lsr r) -> [ SExpression anno $ eAssignShiftRight (EReg8 r) (eImm8 $ Imm8 1) ]
+  SAsm anno (iex_astI -> Lsl r) -> [ SExpression anno $ eAssignShiftLeft (EReg8 r) (eImm8 $ Imm8 1) ]
+  SAsm anno (iex_astI -> Mov r1 r2) -> [ SExpression anno $ eAssign (EReg8 r1) (EReg8 r2) ]
+  SAsm anno (iex_astI -> Add r1 r2) -> [ SExpression anno $ eAssignPlus (EReg8 r1) (EReg8 r2) ]
   SAsm anno (iex_astI -> Lds r imm) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop Dereference $ ELiteral $ LImm16 imm) ]
-  SAsm anno (iex_astI -> Lddz r imm) -> [
-    SExpression anno $ EBinop Assign (EReg8 r) (EUnop Dereference $ EReg16 RZ),
-    SExpression anno $ EBinop AssignPlus (EReg16 RZ) (ELiteral $ LImm8 imm)]
-    
+  SAsm anno (iex_astI -> Lddz r imm) -> [SExpression anno $ EBinop Assign (EReg8 r) (EUnop Dereference $ EBinop Plus (EReg16 RZ) (ELiteral $ LImm8 imm))]
+  SAsm anno (iex_astI -> Ldi r imm) -> [ SExpression anno $ EBinop Assign (EReg8 r) (ELiteral $ LImm8 imm) ]
+  SAsm anno (iex_astI -> Adiw r1 imm) -> [ SExpression anno $ EBinop AssignPlus (EReg16 r1) (ELiteral $ LImm8 imm) ]
+  SAsm anno (iex_astI -> Sbiw r1 imm) -> [ SExpression anno $ EBinop AssignMinus (EReg16 r1) (ELiteral $ LImm8 imm) ]
+  SAsm anno (iex_astI -> Movw r1 r2) -> [ SExpression anno $ EBinop Assign (EReg16 r1) (EReg16 r2) ]
+  SAsm anno (iex_astI -> Ldx r) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop Dereference (EReg16 RX)) ]
+  SAsm anno (iex_astI -> Ldy r) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop Dereference (EReg16 RY)) ]
+  SAsm anno (iex_astI -> Ldz r) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop Dereference (EReg16 RZ)) ]
+  SAsm anno (iex_astI -> Ldxp r) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop PostIncrement (EUnop Dereference (EReg16 RX))) ]
+  SAsm anno (iex_astI -> Ldyp r) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop PostIncrement (EUnop Dereference (EReg16 RY))) ]
+  SAsm anno (iex_astI -> Stdz imm r) -> [ SExpression anno $ EBinop Assign (EUnop Dereference (EBinop Plus (EReg16 RZ) (ELiteral $ LImm8 imm))) (EReg8 r)]
+  SAsm anno (iex_astI -> Stz r) -> [ SExpression anno $ eAssign (EReg8 r) (eDereference $ EReg16 RZ) ]
+  SAsm anno (iex_astI -> Ret) -> [ SReturn anno Nothing ]
+  SAsm anno (iex_astI -> Swap r) ->
+    let higher = eShiftLeft (eAnd (EReg8 r) (eImm8 $ Imm8 0x07)) (eImm8 $ Imm8 4)
+        lower = eShiftRight (eAnd (EReg8 r) (eImm8 $ Imm8 0x70)) (eImm8 $ Imm8 4)
+    in [ SExpression anno $ eAssign (EReg8 r) (eOr higher lower) ]
   _ -> [ stmt ]
 
 pass_replaceSingleInstructions :: Pass
@@ -374,28 +422,121 @@ replaceLocalJumpsWithGotos :: Statement -> [ Statement ]
 replaceLocalJumpsWithGotos stat =
   let emitForRelptr anno relptr = let (a,b) = labelAndGotoForRelptr anno relptr in [ a, b]
   in case stat of
-    SAsm anno instr@(InstructionEx { iex_astI = Rjmp relptr }) -> emitForRelptr anno relptr
+    SAsm anno instr@(iex_astI -> Rjmp relptr) -> emitForRelptr anno relptr
     _ -> [ stat ]
+
+
+withPair r1 r2 f = case getRegisterPair r1 r2 of
+  Nothing -> Nothing
+  Just x -> f x
+
+converge :: (a -> a -> Bool) -> [a] -> a
+converge p (x:ys@(y:_))
+    | p x y     = y
+    | otherwise = converge p ys
+
+pass_simplify :: Pass
+pass_simplify = do
+  ctx_statements %= map (converge (==) . iterate (replaceSubtree simplify))
+  return ()
+  where
+    simplify stmt = case stmt of
+      (SExpression anno1 (EBinop AssignPlus x1 x2)) | x1 == x2 -> [(SExpression anno1 (EBinop AssignMultiply x1 (eImm8 $ Imm8 2)))]
+      _ -> [ stmt ]
+
+expandAssignment :: Expression -> Expression
+expandAssignment x =
+  let table binop = case binop of
+        AssignPlus -> Just ePlus
+        AssignMinus -> Just eMinus
+        AssignMultiply -> Just eMultiply
+        AssignDivide -> Just eDivide
+        AssignBitXor -> Just eXor
+        AssignBitOr -> Just eOr
+        AssignBitAnd -> Just eAnd
+        AssignBitShiftRight -> Just eShiftRight
+        AssignBitShiftLeft -> Just eShiftLeft
+        _ -> Nothing
+  in case x of
+    EBinop (table -> Just binop) a b -> eAssign a (binop a b)
+    _ -> x
+
+pass_fuse2Statements :: Pass
+pass_fuse2Statements = do
+  ctx_statements %= map (converge (==) . iterate (replaceGroup 2 fuse2Statements))
+  return ()
+  where
+    fuse2Statements stmts = case stmts of
+      (SExpression anno1 (EBinop AssignPlus x1 x2): SExpression anno2 (EBinop AssignPlus x3 x4):[]) | x1 == x3 ->
+        Just [SExpression anno1 (EBinop AssignPlus x1 (EBinop Plus x2 x4))]
+      (SExpression anno1 (EBinop AssignMultiply x1 x2): SExpression anno2 (EBinop AssignMultiply x3 x4):[]) | x1 == x3 ->
+        Just [SExpression anno1 (EBinop AssignMultiply x1 (EBinop Multiply x2 x4))]
+      (SExpression anno1 (EBinop AssignBitShiftRight x1 x2): SExpression anno2 (EBinop AssignBitShiftRight x3 x4):[]) | x1 == x3 ->
+        Just [SExpression anno1 (EBinop AssignBitShiftRight x1 (EBinop Plus x2 x4))]
+      (SExpression anno1 (EBinop Assign x1 x2): SExpression anno2 (expandAssignment -> EBinop Assign x3 (EBinop binop x4 x5)):[]) | x1 == x3 && x3 == x4 -> Just [ SExpression anno1 (EBinop Assign x1 (EBinop binop x2 x5)) ]                                                                                                                                   
+      _ -> Nothing
+
+fuseMultibytePtrs :: [ Statement ] -> Maybe [ Statement ]
+fuseMultibytePtrs stmts =
+  let lift2_reg16 anno r1 r2 r3 r4 binop = withPair r1 r2 $ \r16_1 -> withPair r3 r4 $ \r16_2 ->
+        Just $ SExpression anno (EBinop binop (EReg16 r16_1) (EReg16 r16_2))
+  in case stmts of
+    (SAsm anno1 (iex_astI -> Add r1 r3): SAsm anno2 (iex_astI -> Adc r2 r4):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 AssignPlus
+    (SAsm anno1 (iex_astI -> Mov r1 r3): SAsm anno2 (iex_astI -> Or r2 r4):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 Assign
+    (SAsm anno1 (iex_astI -> Eor r1 r3): SAsm anno2 (iex_astI -> Eor r2 r4):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 AssignBitXor
+    (SAsm anno1 (iex_astI -> Ldxp r1): SAsm anno2 (iex_astI -> Ldx r2):[]) -> withPair r1 r2 $ \r16 ->
+      Just [ SExpression anno1 (EBinop Assign (EReg16 r16) (EUnop Dereference (EUnop PostIncrement (EReg16 RX))))]
+    (SAsm anno1 (iex_astI -> Ldxp r1): SAsm anno2 (iex_astI -> Ldxp r2):[]) -> withPair r1 r2 $ \r16 ->
+      Just [ SExpression anno1 (EBinop Assign (EReg16 r16) (EUnop Dereference (EUnop PostIncrement (EReg16 RX)))),
+             SExpression anno1 (EUnop PostIncrement (EReg16 RX))]
+    (SAsm anno1 (iex_astI -> Ldyp r1): SAsm anno2 (iex_astI -> Ldy r2):[]) -> withPair r1 r2 $ \r16 ->
+      Just [ SExpression anno1 (EBinop Assign (EReg16 r16) (EUnop Dereference (EUnop PostIncrement (EReg16 RY))))]
+    _ -> Nothing
+
+fuse3Instrs :: [ Statement ] -> Maybe [ Statement ]
+fuse3Instrs stmts = case stmts of
+  (SAsm anno1 (iex_astI -> Cpi r1 imm): SAsm anno2 (iex_astI -> Cpc r2 r3): SAsm anno3 (iex_astI -> Brne relptr):[]) ->
+   withPair r1 r2 $ \r16 ->
+    let (label,goto) = labelAndGotoForRelptr anno3 relptr
+        sub1 = eSub (EReg8 r1) (eImm8 imm)
+        sub2 = eSub (EReg8 r2) (EReg8 r3)
+        condition = ePlus sub1 (eShiftRight sub2 (eImm8 $ Imm8 8))
+    in Just [ label, SIfElse anno1 condition goto (SBlock anno2 []) ]
+  _ -> Nothing
+      
+fuseRedundantLabels :: [ Statement ] -> Maybe [ Statement ]
+fuseRedundantLabels stmts = case stmts of
+  (i@(SLabel ann1 (LabelId id1)): SLabel ann2 (LabelId id2): []) | id1 == id2 -> Just [ i ]
+  _ -> Nothing
+
+pass_fuseMultibytePtrs :: Pass
+pass_fuseMultibytePtrs = do
+  ctx_statements %= map (replaceGroup 2 fuseMultibytePtrs)
+  return ()
+
+pass_fuseRedundantLabels :: Pass
+pass_fuseRedundantLabels = do
+  ctx_statements %= map (replaceGroup 2 fuseRedundantLabels)
+  return ()
+
+pass_fuse3Instrs :: Pass
+pass_fuse3Instrs =do
+  ctx_statements %= map (replaceGroup 3 fuse3Instrs)
+  return ()
 
 replaceBranchesWithJumps :: [Statement] -> Maybe [ Statement ]
 replaceBranchesWithJumps stmts =
-  let withPair r1 r2 f = case getRegisterPair r1 r2 of
-        Nothing -> Nothing
-        Just r16 -> f r16
-  in case stmts of
+  case stmts of
     (SAsm x (iex_astI -> Or r1 r2): SAsm y (iex_astI -> Breq relptr):[]) -> withPair r1 r2 $ \r16 ->
       let (label, goto) = labelAndGotoForRelptr y relptr
-      in Just [ SIfElse x (EUnop Not $ EUnop Dereference $ EReg16 r16) goto (SBlock y []) ]
+      in Just [ label, SIfElse x (EUnop Not $ EReg16 r16) goto (SBlock y []) ]
     (SAsm x (iex_astI -> Or r1 r2): SAsm y (iex_astI -> Brne relptr):[]) -> withPair r1 r2 $ \r16 ->
       let (label, goto) = labelAndGotoForRelptr y relptr
-      in Just [ SIfElse x (EUnop Dereference $ EReg16 r16) goto (SBlock y []) ]
+      in Just [ label, SIfElse x (EReg16 r16) goto (SBlock y []) ]
+    (SAsm anno instr@(iex_astI -> Sbrs r (BitIdx idx)) : s2 :[]) -> Just [
+      SIfElse anno (EUnop Not (EBinop BitAnd (EReg8 r) (ELiteral $ LImm8 $ Imm8 $ 2^idx))) s2 (SBlock anno [])]
+    (SAsm anno1 (iex_astI -> And r1 r2): SAsm anno2 (iex_astI -> Breq relptr):[]) | r1 == r2 ->
+      let (label, goto) = labelAndGotoForRelptr anno2 relptr
+      in Just [ label, SIfElse anno1 (EUnop Not (EReg8 r1)) goto (SBlock anno2 [])]
+
     _ -> Nothing
-
-
-getRegisterPair :: Register -> Register -> Maybe Reg16
-getRegisterPair r1 r2 = case (r1,r2) of
-  (Register 24, Register 25) -> Just R24
-  (Register 26, Register 27) -> Just RX
-  (Register 28, Register 29) -> Just RY
-  (Register 30, Register 31) -> Just RZ
-  _ -> Nothing

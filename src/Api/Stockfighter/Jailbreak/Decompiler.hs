@@ -20,12 +20,18 @@ decompile instructions =
   let iexs = map (\i -> InstructionEx i (parseInstruction i)) instructions
       context = mempty { _ctx_statements = map iex_asm iexs }
   in flip execStateT context $ do
+    -- Instruction-level passes
     pass_groupBySymbol
+    pass_fuse3Instrs
     pass_replaceLocalJumpsWithGotos
     pass_fuseMultibytePtrs
     pass_replaceBranchesWithJumps
     pass_replaceSingleInstructions
+
+    -- Statement-level passes
+    pass_simplify
     pass_fuseRedundantLabels
+    pass_fuse2Statements
 
 print_ast :: [ Statement ] -> IO ()
 print_ast statements = do

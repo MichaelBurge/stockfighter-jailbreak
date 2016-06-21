@@ -50,10 +50,22 @@ instance PrintAst Binop where
     Multiply -> "*"
     Divide -> "/"
     Mod -> "%"
+    BitAnd -> "&"
+    BitOr -> "|"
+    BitXor -> "^"
+    BitShiftRight -> ">>"
+    BitShiftLeft -> "<<"
     Assign -> "="
     AssignPlus -> "+="
     AssignMinus -> "-="
-    BitAnd -> "&"
+    AssignMultiply -> "*="
+    AssignDivide -> "/="
+    AssignBitXor -> "^="
+    AssignBitAnd -> "&="
+    AssignBitOr -> "|="
+    AssignBitShiftRight -> ">>="
+    AssignBitShiftLeft -> "<<="
+
 
 instance PrintAst Register where
   printNode (Register x) = return $ PP.text $ "r" ++ show x
@@ -67,8 +79,21 @@ instance PrintAst Literal where
     LImm16 x -> printNode x
     LImm32 x -> printNode x
 
+isAssignment Assign = True
+isAssignment AssignPlus = True
+isAssignment AssignMinus = True
+isAssignment AssignBitXor = True
+isAssignment AssignBitAnd = True
+isAssignment AssignBitOr = True
+isAssignment AssignBitShiftRight = True
+isAssignment AssignBitShiftLeft = True
+isAssignment _ = False
+
 shouldParenthesize :: Expression -> Bool
 shouldParenthesize (EUnop _ (EBinop _ _ _)) = True
+shouldParenthesize (EBinop x _ _) | isAssignment x = False
+shouldParenthesize (EBinop _ (EBinop _ _ _) _) = True
+shouldParenthesize (EBinop _ _ (EBinop _ _ _)) = True
 shouldParenthesize _ = False
 
 instance PrintAst Expression where
@@ -89,7 +114,7 @@ instance PrintAst Expression where
             a <- printNode exp1
             b <- printNode binop
             c <- printNode exp2
-            return $ a <+> b <+> c
+            return $ maybeParenthesize a <+> b <+> maybeParenthesize c
           ECall symbol args -> do
             a <- printNode symbol
             xs <- mapM printNode args
