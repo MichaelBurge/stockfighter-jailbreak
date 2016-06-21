@@ -22,8 +22,10 @@ decompile instructions =
   in flip execStateT context $ do
     pass_groupBySymbol
     pass_replaceLocalJumpsWithGotos
+    pass_fuseMultibytePtrs
     pass_replaceBranchesWithJumps
     pass_replaceSingleInstructions
+    pass_fuseRedundantLabels
 
 print_ast :: [ Statement ] -> IO ()
 print_ast statements = do

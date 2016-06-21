@@ -40,6 +40,8 @@ instance PrintAst Unop where
     Negate -> return $ PP.text "-"
     Not -> return $ PP.text "!"
     Dereference -> return $ PP.text "*"
+    PostIncrement -> return $ PP.text "++"
+    PreIncrement -> return $ PP.text "++"
 
 instance PrintAst Binop where
   printNode x = return $ PP.text $ case x of
@@ -50,16 +52,14 @@ instance PrintAst Binop where
     Mod -> "%"
     Assign -> "="
     AssignPlus -> "+="
+    AssignMinus -> "-="
+    BitAnd -> "&"
 
 instance PrintAst Register where
   printNode (Register x) = return $ PP.text $ "r" ++ show x
 
 instance PrintAst Reg16 where
-  printNode x = return $ PP.text $ case x of
-    R24 -> "R24"
-    RX  -> "X"
-    RY  -> "Y"
-    RZ  -> "Z"
+  printNode x = return $ PP.text $ show x
 
 instance PrintAst Literal where
   printNode x = case x of
@@ -67,24 +67,36 @@ instance PrintAst Literal where
     LImm16 x -> printNode x
     LImm32 x -> printNode x
 
+shouldParenthesize :: Expression -> Bool
+shouldParenthesize (EUnop _ (EBinop _ _ _)) = True
+shouldParenthesize _ = False
+
 instance PrintAst Expression where
-  printNode x = case x of
-    ELiteral y -> printNode y
-    EUnop unop exp -> do
-      a <- printNode unop
-      b <- printNode exp
-      return $ a <> b
-    EBinop binop exp1 exp2 -> do
-      a <- printNode exp1
-      b <- printNode binop
-      c <- printNode exp2
-      return $ a <+> b <+> c
-    ECall symbol args -> do
-      a <- printNode symbol
-      xs <- mapM printNode args
-      return $ a <> parens ( mconcat $ punctuate comma xs )
-    EReg8 r8 -> printNode r8
-    EReg16 r16 -> printNode r16
+  printNode x =
+    let maybeParenthesize e =
+          if shouldParenthesize x
+          then parens e
+          else e
+        result = case x of
+          ELiteral y -> printNode y
+          EUnop unop exp -> do
+            a <- printNode unop
+            b <- printNode exp
+            case unop of
+              PostIncrement -> return $ maybeParenthesize b <> a
+              _ -> return $ a <> maybeParenthesize b
+          EBinop binop exp1 exp2 -> do
+            a <- printNode exp1
+            b <- printNode binop
+            c <- printNode exp2
+            return $ a <+> b <+> c
+          ECall symbol args -> do
+            a <- printNode symbol
+            xs <- mapM printNode args
+            return $ a <> parens ( mconcat $ punctuate comma xs )
+          EReg8 r8 -> printNode r8
+          EReg16 r16 -> printNode r16
+    in result
 
 instance PrintAst Instruction where
   printNode = \Instruction{..} -> do
@@ -126,13 +138,19 @@ instance PrintAst (StatementEx a) where
     SIfElse _ cond x y -> do
       a <- printNode cond
       b <- printNode x
-      let ifPart = PP.text "if" <+> a $+$ hang empty 4 b
+      let ifPart = PP.text "if" <+> parens a $+$ hang empty 4 b
       case y of
         SBlock _ [] -> do
           return ifPart
         _ -> do
           c <- printNode y
           return $ ifPart <+> PP.text "else" <+> c
+    SReturn _ x -> do
+      case x of
+        Nothing -> return $ PP.text "return"
+        Just x -> do
+          a <- printNode x
+          return $ PP.text "return" <+> a
 
 instance PrintAst a => PrintAst (Maybe a) where
   printNode Nothing = return empty

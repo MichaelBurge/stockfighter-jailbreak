@@ -26,20 +26,35 @@ instance Show Register where
 regJunk = Register 0
 regZero = Register 1
 
-data Reg16 = R24
+data Reg16 = R16 Int
            | RX
            | RY
            | RZ
            deriving (Eq, Data, Typeable)
 
 instance Show Reg16 where
-  show R24 = "R24"
+  show (R16 i) = "R" ++ show i
   show RX = "X"
   show RY = "Y"
   show RZ = "Z"
 
+mkReg16 :: Int -> Reg16
+mkReg16 x = case x of
+  26 -> RX
+  28 -> RY
+  30 -> RZ
+  _  -> R16 x
+
+getRegisterPair :: Register -> Register -> Maybe Reg16
+getRegisterPair r1 r2 = case (r1,r2) of
+  (Register 26, Register 27) -> Just RX
+  (Register 28, Register 29) -> Just RY
+  (Register 30, Register 31) -> Just RZ
+  (Register x, Register y) | x == (y-1) -> Just $ R16 x
+  _ -> Nothing
+
 regPairs :: Reg16 -> (Register, Register)
-regPairs R24 = (Register 24, Register 25)
+regPairs (R16 x) = (Register x, Register $ x+1)
 regPairs RX = (Register 26, Register 27)
 regPairs RY = (Register 28, Register 29)
 regPairs RZ = (Register 30, Register 31)
@@ -111,6 +126,8 @@ class PrintAst a where
 data Unop = Negate
           | Not
           | Dereference
+          | PostIncrement
+          | PreIncrement
           deriving (Show, Data, Typeable)
 
 data Binop = Plus
@@ -118,8 +135,10 @@ data Binop = Plus
            | Multiply
            | Divide
            | Mod
+           | BitAnd
            | Assign
            | AssignPlus
+           | AssignMinus
            deriving (Show, Data, Typeable)
 
 data Literal = LImm8 Imm8
@@ -202,7 +221,7 @@ data AstInstruction = Mov Register Register
                       -- Register Pairs
                     | Adiw Reg16 Imm8
                     | Sbiw Reg16 Imm8
-                    | Movw Register Register
+                    | Movw Reg16 Reg16
                       -- Stack
                     | Push Register
                     | Pop Register
@@ -298,6 +317,7 @@ data StatementEx a where
   SVariable   :: Show a => a -> VariableId -> Type -> Maybe Expression -> StatementEx a
   SFunction   :: Show a => a -> Type -> Symbol -> [ StatementEx a] -> StatementEx a -> StatementEx a
   SIfElse     :: Show a => a -> Expression -> StatementEx a -> StatementEx a -> StatementEx a
+  SReturn     :: Show a => a -> Maybe Expression -> StatementEx a
 
 
 deriving instance Show (StatementEx a)
