@@ -15,9 +15,13 @@ import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State.Strict
 import Text.PrettyPrint as PP
 
-decompile :: [ Instruction ] -> IO ([ Statement ], Context)
-decompile instructions = flip runStateT (mempty { _ctx_assembly = instructions }) $ do
-  groupBySymbol
+decompile :: [ Instruction ] -> IO Context
+decompile instructions =
+  let iexs = map (\i -> InstructionEx i (parseInstruction i)) instructions
+      context = mempty { _ctx_statements = map iex_asm iexs }
+  in flip execStateT context $ do
+    pass_groupBySymbol
+    pass_replaceLocalJumpsWithGotos2
 
 print_ast :: [ Statement ] -> IO ()
 print_ast statements = do

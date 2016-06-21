@@ -90,8 +90,8 @@ command_device_program_disassemble args = withAssemblyFile args $ \instructions 
   forM_ instructions $ putStrLn . render . flip runReader mempty . printNode
 
 command_device_program_decompile args = withAssemblyFile args $ \instructions -> do
-  (statements, context) <- decompile instructions
-  print_ast statements
+  context <- decompile instructions
+  print_ast $ _ctx_statements $ context
   
 command_device_start _ = do
   result <- unsafeInvokeApi post_device_start

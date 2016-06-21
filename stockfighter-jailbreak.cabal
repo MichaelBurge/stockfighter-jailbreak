@@ -38,6 +38,9 @@ library
                      , servant-client
                      , text
                      , transformers
+                     
+  extensions:          LambdaCase
+                     , OverloadedStrings
   default-language:    Haskell2010
 
 executable jb

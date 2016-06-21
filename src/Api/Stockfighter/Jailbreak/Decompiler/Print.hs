@@ -12,8 +12,8 @@ import Text.PrettyPrint as PP
 
 import qualified Data.Text as T
 
-block :: Doc -> Doc -> Doc
-block intro inner = hang (intro <+> lbrace) 4 inner $+$ rbrace
+block :: [Doc] -> Doc
+block inners = lbrace $+$ hang empty 4 (sep $ punctuate semi inners) $+$ rbrace
 
 instance PrintAst Symbol where
   printNode x = return $ PP.text $ T.unpack $ x ^. sym_symbol 
@@ -22,6 +22,9 @@ instance PrintAst VariableId where
   printNode (VariableId varId) = do
     context <- ask
     printNode $ context ^. ctx_variables ^. elements ^. at varId
+
+instance PrintAst LabelId where
+  printNode (LabelId id) = return $ PP.text "label" <> PP.int id
 
 instance PrintAst Unop where
   printNode x = case x of
@@ -59,19 +62,20 @@ instance PrintAst Instruction where
         return $ PP.text $ show offset ++ ":\t\t" ++ T.unpack dump
       Just x -> return $ PP.text $ T.unpack x
       
-instance PrintAst Statement where
+instance PrintAst (StatementEx a) where
   printNode x = case x of
-    SAssign varId initializer -> do
+    SAssign _ varId initializer -> do
       a <- printNode varId
       b <- printNode initializer
       return $ a <+> PP.text "=" <+> b
-    SGoto varId -> do
+    SLabel _ x -> printNode x
+    SGoto _ varId -> do
       a <- printNode varId
       return $ PP.text "goto" <+> a
-    SAsm xs -> do
-      asms <- mapM printNode xs
-      return $ block (PP.text "asm") $ sep (punctuate semi asms)
-    SVariable varId ty mInitializer -> do
+    SAsm _ iex -> do
+      a <- printNode iex
+      return $ PP.text "asm" <+> a
+    SVariable _ varId ty mInitializer -> do
       a <- printNode ty
       b <- printNode varId
       c <- case mInitializer of
@@ -80,12 +84,15 @@ instance PrintAst Statement where
           xn <- printNode x
           return $ PP.text "=" <+> xn
       return $ a <+> b <+> c
-    SFunction ty sym args body -> do
+    SBlock _ xs -> do
+      as <- mapM printNode xs
+      return $ block as
+    SFunction _ ty sym args body -> do
       a <- printNode ty
       b <- printNode sym
       cs <- mapM printNode args
-      ds <- mapM printNode body
-      return $ block (a <+> b <> parens (mconcat $ punctuate comma cs)) $ sep (punctuate semi ds)
+      d <- printNode body
+      return $ sep [ a <+> b <> parens (mconcat $ punctuate comma cs),  d ]
 
 instance PrintAst a => PrintAst (Maybe a) where
   printNode Nothing = return empty
@@ -101,3 +108,6 @@ instance PrintAst Type where
 
 instance PrintAst AstInstruction where
   printNode x = return $ PP.text $ map toLower $ show x
+
+instance PrintAst InstructionEx where
+  printNode (InstructionEx _ x) = printNode x

@@ -16,21 +16,24 @@ import Numeric
 import Text.PrettyPrint hiding ((<>))
 import Text.Printf
 
-newtype FunctionId = FunctionId Int deriving (Show)
-newtype VariableId = VariableId Int deriving (Show)
-newtype Register = Register Int
+newtype FunctionId = FunctionId Int deriving (Show, Data, Typeable)
+newtype LabelId = LabelId Int deriving (Show, Data, Typeable)
+newtype VariableId = VariableId Int deriving (Eq, Show, Data, Typeable)
+newtype Register = Register Int deriving (Eq, Data, Typeable)
 instance Show Register where
   show (Register id) = "r" ++ show id
 
 regJunk = Register 0
 regZero = Register 1
 
-data Reg16 = RX
+data Reg16 = R24
+           | RX
            | RY
            | RZ
-           deriving (Show)
+           deriving (Eq, Show, Data, Typeable)
 
 regPairs :: Reg16 -> (Register, Register)
+regPairs R24 = (Register 24, Register 25)
 regPairs RX = (Register 26, Register 27)
 regPairs RY = (Register 28, Register 29)
 regPairs RZ = (Register 30, Register 31)
@@ -40,40 +43,42 @@ data RegOp = RegOpUnchanged
            | RegOpDec
            | RegOpPlus Int
            | RegOpMinus Int
-           deriving (Show)
+           deriving (Eq, Show, Data, Typeable)
 
-newtype AbsPtr = AbsPtr Int
+newtype AbsPtr = AbsPtr Int deriving (Eq, Data, Typeable)
 instance Show AbsPtr where
   show (AbsPtr id) = printf "0x%08x" id
 
-newtype RelPtr = RelPtr Int
+newtype RelPtr = RelPtr Int deriving (Eq, Data, Typeable)
 instance Show RelPtr where
-  show (RelPtr id) =
-    let adjusted = if id > 32767
-                   then id - 65536
-                   else id
-    in "." ++ show adjusted
+  show (RelPtr id) = "." ++ show id
 
-newtype Imm32 = Imm32 Int
+mkRelptr :: Int -> RelPtr
+mkRelptr id = RelPtr $
+  if id > 32767
+  then id - 65536
+  else id
+
+newtype Imm32 = Imm32 Int deriving (Eq, Data, Typeable)
 instance Show Imm32 where
   show (Imm32 id) = printf "0x%08x" id
 
-newtype Imm16 = Imm16 Int
+newtype Imm16 = Imm16 Int deriving (Eq, Data, Typeable)
 instance Show Imm16 where
   show (Imm16 id) = printf "0x%04x" id
 
-newtype Imm8 = Imm8 Int
+newtype Imm8 = Imm8 Int deriving (Eq, Data, Typeable)
 instance Show Imm8 where
   show (Imm8 id) = printf "0x%02x" id
 
-newtype BitIdx = BitIdx Int
+newtype BitIdx = BitIdx Int deriving (Eq, Data, Typeable)
 instance Show BitIdx where
   show (BitIdx id) = show id
 
 data Symbol = Symbol {
   _sym_symbol :: T.Text,
   _sym_offset :: Int
-  } deriving (Show)
+  } deriving (Show, Data, Typeable)
 
 data Table a = Table {
   _elements :: M.IntMap a,
@@ -85,9 +90,9 @@ instance Monoid (Table a) where
   mappend (Table a1 b1) (Table a2 b2) = Table (a1 <> a2) (b1 + b2)
 
 data Context = Context {
-  _ctx_functions :: Table Symbol,
-  _ctx_variables :: Table Statement,
-  _ctx_assembly :: [ Instruction ]
+  _ctx_functions  :: Table Symbol,
+  _ctx_variables  :: Table Statement,
+  _ctx_statements :: [ Statement ]
   } deriving (Show)
 
 instance Monoid Context where
@@ -98,22 +103,26 @@ class PrintAst a where
   printNode :: a -> Reader Context Doc
 
 data Unop = Negate
-          deriving (Show)
+          | Dereference
+          deriving (Show, Data, Typeable)
 
 data Binop = Plus
            | Subtract
            | Multiply
            | Divide
            | Mod
-             deriving (Show)
+             deriving (Show, Data, Typeable)
 
 data Expression where
   ELiteral :: Int -> Expression
   EUnop :: Unop -> Expression -> Expression
   EBinop :: Binop -> Expression -> Expression -> Expression
   ECall :: Symbol -> [ Expression ] -> Expression
+  EReg16 :: Reg16 -> Expression
 
 deriving instance Show Expression 
+deriving instance Data Expression
+deriving instance Typeable Expression
 
 data Type where
   TVoid    :: Type
@@ -123,6 +132,8 @@ data Type where
   TCharPtr :: Type
 
 deriving instance Show Type
+deriving instance Data Type
+deriving instance Typeable Type
 
 data AstInstruction = Mov Register Register
                     | Cli -- Clear interrupts
@@ -153,14 +164,14 @@ data AstInstruction = Mov Register Register
                     | Sub Register Register
                     | Sbc Register Register
                       -- Math with immediates
-                    | Andi Register Imm32
-                    | Ldi Register Imm32
-                    | Cpi Register Imm32
-                    | Ori Register Imm32
-                    | Subi Register Imm32
-                    | Sbci Register Imm32
+                    | Andi Register Imm8
+                    | Ldi Register Imm8
+                    | Cpi Register Imm8
+                    | Ori Register Imm8
+                    | Subi Register Imm8
+                    | Sbci Register Imm8
                       -- IO load/store
-                    | In Register Imm32
+                    | In Register Imm8
                     | Out Imm8 Register
                     | Sbi Register BitIdx
                     | Cbi Register BitIdx
@@ -174,8 +185,8 @@ data AstInstruction = Mov Register Register
                     | Bld Register BitIdx
                     | Bst Register BitIdx
                       -- Register Pairs
-                    | Adiw Register Register
-                    | Sbiw Register Register
+                    | Adiw Reg16 Imm8
+                    | Sbiw Reg16 Imm8
                     | Movw Register Register
                       -- Stack
                     | Push Register
@@ -248,22 +259,43 @@ data AstInstruction = Mov Register Register
                     | Reti
                     | Unknown
                     | Nop
-                    deriving (Show)
+                    deriving (Eq, Show, Data, Typeable)
 
-data Statement where
-  SAssign :: VariableId -> Expression -> Statement
-  SGoto :: VariableId -> Statement
-  SAsm :: [ AstInstruction ] -> Statement
-  SVariable :: VariableId -> Type -> Maybe Expression -> Statement
-  SFunction :: Type -> Symbol -> [ Statement ] -> [ Statement ] -> Statement
+data InstructionEx = InstructionEx {
+  iex_i    :: Instruction,
+  iex_astI :: AstInstruction
+  } deriving (Eq, Show, Data, Typeable)
 
-deriving instance Show Statement
+data StatementAnnotation = StatementAnnotation {
+  stmtAnno_offset :: Int,
+  stmtAnno_is     :: [ InstructionEx ]
+  } deriving (Eq, Show, Data, Typeable)
+
+instance Ord StatementAnnotation where
+  compare (StatementAnnotation{stmtAnno_offset = offset1}) (StatementAnnotation{stmtAnno_offset = offset2}) = offset1 `compare` offset2
+
+data StatementEx a where
+  SAssign   :: Show a => a -> VariableId -> Expression -> StatementEx a
+  SLabel    :: Show a => a -> LabelId -> StatementEx a
+  SGoto     :: Show a => a -> LabelId -> StatementEx a
+  SAsm      :: Show a => a -> InstructionEx -> StatementEx a
+  SBlock    :: Show a => a -> [ StatementEx a ] -> StatementEx a
+  SVariable :: Show a => a -> VariableId -> Type -> Maybe Expression -> StatementEx a
+  SFunction :: Show a => a -> Type -> Symbol -> [ StatementEx a] -> StatementEx a -> StatementEx a
+  SIfElse   :: Show a => a -> Expression -> StatementEx a -> StatementEx a -> StatementEx a
+
+
+deriving instance Show (StatementEx a)
+-- deriving instance Data (StatementEx a)
+-- deriving instance Typeable (StatementEx a)
+
+type Statement = StatementEx StatementAnnotation
 
 makeLenses ''Symbol
 makeLenses ''Table
 makeLenses ''Context
 makePrisms ''Unop
-makeLenses ''Statement
+makeLenses ''StatementEx
 makePrisms ''Binop
 makeLenses ''Type
 makeLenses ''Expression

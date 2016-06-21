@@ -3,6 +3,8 @@
 module Api.Stockfighter.Jailbreak.Types where
 
 import Data.Aeson
+import Data.Data
+import Data.Typeable
 import GHC.Generics
 
 import qualified Data.ByteString.Base64 as Base64
@@ -179,7 +181,7 @@ data Instruction = Instruction {
   offset :: Int,
   symbol :: Maybe T.Text,
   dump :: T.Text
-  } deriving (Generic, Show)
+  } deriving (Eq, Generic, Show, Data, Typeable)
 
 instance ToJSON Instruction where
 instance FromJSON Instruction where
