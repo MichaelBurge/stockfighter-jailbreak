@@ -226,9 +226,9 @@ set_expr = setting f
   where
     f g = replaceSubtree (replaceExprs g)
     replaceExprs g stmt = case stmt of
-      SExpression a e -> pure $ SExpression a $ g e
-      SIfElse a cond s1 s2 -> pure $ SIfElse a (g cond) s1 s2
-      SWhile a cond s -> pure $ SWhile a (g cond) s
+      SExpression a e -> pure $ SExpression a $ transform g e
+      SIfElse a cond s1 s2 -> pure $ SIfElse a (transform g cond) s1 s2
+      SWhile a cond s -> pure $ SWhile a (transform g cond) s
       _ -> [stmt]
   
 spliceListPoints :: [(Int, a)] -> [Int] -> [[(Int, a)]]
@@ -360,6 +360,7 @@ eAssignXor = EBinop AssignBitXor
 eAssignAnd = EBinop AssignBitAnd
 eAssignOr = EBinop AssignBitOr
 eAssignShiftRight = EBinop AssignBitShiftRight
+ePostIncrement = EUnop PostIncrement
 eNot = EUnop Not
 eAssignShiftLeft = EBinop AssignBitShiftLeft
 ePlus = EBinop Plus
@@ -373,6 +374,8 @@ eAnd = EBinop BitAnd
 eShiftRight = EBinop BitShiftRight
 eShiftLeft = EBinop BitShiftLeft
 eDereference = EUnop Dereference
+eZero = eImm8 $ Imm8 0
+eOne = eImm8 $ Imm8 1
 
 eImm8 = ELiteral . LImm8
 eImm16 = ELiteral . LImm16
@@ -387,18 +390,19 @@ pImm32 _ = Nothing
 
 replaceSingleInstructions :: Statement -> [ Statement ]
 replaceSingleInstructions stmt =
-  let anyLdReg16 (Ldxp r) = Just (RX, r)
-      anyLdReg16 (Ldyp r) = Just (RY, r)
-      anyLdReg16 (Ldzp r) = Just (RZ, r)
+  let postInc = EUnop PostIncrement
+      anyLdReg16 (Ldxp r) = Just (r, postInc (EReg16 RX))
+      anyLdReg16 (Ldyp r) = Just (r, postInc (EReg16 RY))
+      anyLdReg16 (Ldzp r) = Just (r, postInc (EReg16 RZ))
       anyLdReg16 _ = Nothing
   in case stmt of
-  SAsm anno (iex_astI -> Eor r1 r2) | r1 == r2 -> [ SExpression anno $ eAssign (EReg8 r1) (eImm8 $ Imm8 0) ]
+  SAsm anno (iex_astI -> Eor r1 r2) | r1 == r2 -> [ SExpression anno $ eAssign (EReg8 r1) eZero ]
   SAsm anno (iex_astI -> Eor r1 r2) -> [ SExpression anno $ eAssignXor (EReg8 r1) (EReg8 r2) ]
   SAsm anno (iex_astI -> Andi r imm) -> [ SExpression anno $ eAssignAnd (EReg8 r) (eImm8 imm) ]
   SAsm anno (iex_astI -> Or r1 r2) -> [ SExpression anno $ eAssignOr (EReg8 r1) (EReg8 r2) ]
   SAsm anno (iex_astI -> Ori r imm) -> [ SExpression anno $ eAssignOr (EReg8 r) (eImm8 imm) ]
-  SAsm anno (iex_astI -> Lsr r) -> [ SExpression anno $ eAssignShiftRight (EReg8 r) (eImm8 $ Imm8 1) ]
-  SAsm anno (iex_astI -> Lsl r) -> [ SExpression anno $ eAssignShiftLeft (EReg8 r) (eImm8 $ Imm8 1) ]
+  SAsm anno (iex_astI -> Lsr r) -> [ SExpression anno $ eAssignShiftRight (EReg8 r) eOne ]
+  SAsm anno (iex_astI -> Lsl r) -> [ SExpression anno $ eAssignShiftLeft (EReg8 r) eOne ]
   SAsm anno (iex_astI -> Mov r1 r2) -> [ SExpression anno $ eAssign (EReg8 r1) (EReg8 r2) ]
   SAsm anno (iex_astI -> Add r1 r2) -> [ SExpression anno $ eAssignPlus (EReg8 r1) (EReg8 r2) ]
   SAsm anno (iex_astI -> Lds r imm) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop Dereference $ ELiteral $ LImm16 imm) ]
@@ -409,13 +413,15 @@ replaceSingleInstructions stmt =
   SAsm anno (iex_astI -> Adiw r1 imm) -> [ SExpression anno $ EBinop AssignPlus (EReg16 r1) (ELiteral $ LImm8 imm) ]
   SAsm anno (iex_astI -> Sbiw r1 imm) -> [ SExpression anno $ EBinop AssignMinus (EReg16 r1) (ELiteral $ LImm8 imm) ]
   SAsm anno (iex_astI -> Movw r1 r2) -> [ SExpression anno $ EBinop Assign (EReg16 r1) (EReg16 r2) ]
-  SAsm anno (iex_astI -> (anyLdReg16 -> Just (r16, r8))) -> [ SExpression anno $ EBinop Assign (EReg8 r8) (EUnop Dereference (EReg16 r16)) ]
+  SAsm anno (iex_astI -> (anyLdReg16 -> Just (r8, e))) -> [ SExpression anno $ EBinop Assign (EReg8 r8) (EUnop Dereference e) ]
   SAsm anno (iex_astI -> Ldxp r) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop PostIncrement (EUnop Dereference (EReg16 RX))) ]
   SAsm anno (iex_astI -> Ldyp r) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop PostIncrement (EUnop Dereference (EReg16 RY))) ]
   SAsm anno (iex_astI -> Ldyp r) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop PostIncrement (EUnop Dereference (EReg16 RY))) ]
   SAsm anno (iex_astI -> Stdz imm r) -> [ SExpression anno $ EBinop Assign (EUnop Dereference (EBinop Plus (EReg16 RZ) (ELiteral $ LImm8 imm))) (EReg8 r)]
-  SAsm anno (iex_astI -> Stz r) -> [ SExpression anno $ eAssign (EReg8 r) (eDereference $ EReg16 RZ) ]
-  SAsm anno (iex_astI -> Styp q r) -> [ SExpression anno $ eAssign (EReg8 r) (eDereference $ ePlus (EReg16 RZ) (eImm8 q)) ]
+  SAsm anno (iex_astI -> Stz r) -> [ SExpression anno $ eAssign (eDereference $ EReg16 RZ) (EReg8 r)]
+  SAsm anno (iex_astI -> Stxp r) -> [ SExpression anno $ eAssign (eDereference $ ePostIncrement (EReg16 RX)) (EReg8 r) ]
+  SAsm anno (iex_astI -> Styp q r) -> [ SExpression anno $ eAssign (eDereference $ ePlus (EReg16 RY) (eImm8 q)) (EReg8 r) ]
+  SAsm anno (iex_astI -> Stzp r) -> [ SExpression anno $ eAssign (EReg8 r) (eDereference $ ePostIncrement (EReg16 RZ)) ]
   SAsm anno (iex_astI -> Icall) -> [ SExpression anno $ ECall (EReg16 RZ) [] ]
   SAsm anno (iex_astI -> Ret) -> [ SReturn anno Nothing ]
   SAsm anno (iex_astI -> Swap r) ->
@@ -453,6 +459,7 @@ converge p (x:ys@(y:_))
     | otherwise = converge p ys
 
 anyCompare :: Binop -> Bool
+anyCompare NotEqual = True
 anyCompare Equal = True
 anyCompare GreaterOrEqual = True
 anyCompare Greater = True
@@ -465,6 +472,8 @@ expr_simplify = \case
   EBinop AssignPlus x1 x2 | x1 == x2 -> Just $ EBinop AssignMultiply x1 (eImm8 $ Imm8 2)
   EBinop binop@(anyCompare -> True) (EBinop Subtract e1 e2) (ELiteral (anyLiteral -> 0)) -> Just $ EBinop binop e1 e2
   EUnop Not (EUnop Not x) -> Just x
+  EBinop AssignMinus x1 e | e == eOne -> Just $ EUnop PreDecrement x1
+  EBinop Plus (EUnop PreDecrement x1) e | e == eOne -> Just $ EUnop PostDecrement x1
   x -> Nothing
 
 pass_simplify :: Pass
@@ -542,6 +551,9 @@ fuseMultibytePtrs stmts =
         Just $ SExpression anno (EBinop binop (EReg16 r16_1) (EReg16 r16_2))
   in case stmts of
     (SAsm anno1 (iex_astI -> Add r1 r3): SAsm anno2 (iex_astI -> Adc r2 r4):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 AssignPlus
+    (SAsm anno1 (iex_astI -> Subi r1 (Imm8 imm8_1)): SAsm anno2 (iex_astI -> Sbci r2 (Imm8 imm8_2)):[]) ->
+      fmap pure $ withPair r1 r2 $ \r16 ->
+      Just $ SExpression anno1 (EBinop AssignMinus (EReg16 r16) (ELiteral $ LImm8 (Imm8 $ imm8_1 + 2^8 * imm8_2)))
     (SAsm anno1 (iex_astI -> Mov r1 r3): SAsm anno2 (iex_astI -> Or r2 r4):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 Assign
     (SAsm anno1 (iex_astI -> Eor r1 r3): SAsm anno2 (iex_astI -> Eor r2 r4):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 AssignBitXor
     (SAsm anno1 (iex_astI -> Ldxp r1): SAsm anno2 (iex_astI -> Ldx r2):[]) -> withPair r1 r2 $ \r16 ->
@@ -612,10 +624,12 @@ replaceBranchesWithJumps stmts =
       in Just [ label, SIfElse x (EReg16 r16) goto (SBlock y []) ]
     (SAsm anno instr@(iex_astI -> Sbrs r (BitIdx idx)) : s2 :[]) -> Just [
       SIfElse anno (EUnop Not (EBinop BitAnd (EReg8 r) (ELiteral $ LImm8 $ Imm8 $ 2^idx))) s2 (SBlock anno [])]
-    (SAsm anno1 (iex_astI -> And r1 r2): SAsm anno2 (iex_astI -> Breq relptr):[]) | r1 == r2 ->
+    (SAsm anno1 (iex_astI -> And r1 r2): SAsm anno2 (iex_astI -> (anyBranch -> Just (relptr, condMod))):[]) | r1 == r2 ->
       let (label, goto) = labelAndGotoForRelptr anno2 relptr
-      in Just [ label, SIfElse anno1 (EUnop Not (EReg8 r1)) goto (SBlock anno2 [])]
-
+      in Just [ label, SIfElse anno1 (condMod (EReg8 r1)) goto (SBlock anno2 [])]
+    (SExpression anno1 e: SAsm anno2 (iex_astI -> Brcc relptr):[]) ->
+      let (label, goto) = labelAndGotoForRelptr anno2 relptr
+      in Just [ label, SIfElse anno1 (EBinop NotEqual (EBinop Plus e eOne) eZero) goto (SBlock anno2 []) ]
     _ -> Nothing
 
 extractSubsequence :: (a -> Maybe b) -> (b -> a -> Maybe c) -> [a] -> ([a], (Maybe b, Maybe c, [a]),[a])

@@ -1,4 +1,4 @@
-{-# LANGUAGE GADTs,StandaloneDeriving,DataKinds,TemplateHaskell,DeriveDataTypeable #-}
+{-# LANGUAGE GADTs,StandaloneDeriving,DataKinds,TemplateHaskell,DeriveDataTypeable,DeriveFunctor #-}
 
 module Api.Stockfighter.Jailbreak.Decompiler.AST where
 
@@ -130,6 +130,8 @@ data Unop = Negate
           | Dereference
           | PostIncrement
           | PreIncrement
+          | PostDecrement
+          | PreDecrement
           | BitComplement
           deriving (Show, Eq, Data, Typeable)
 
@@ -143,6 +145,7 @@ data Binop = Plus
            | BitXor
            | BitShiftRight
            | BitShiftLeft
+           | NotEqual
            | Equal
            | GreaterOrEqual
            | Greater
@@ -174,8 +177,10 @@ data Expression where
   EReg16 :: Reg16 -> Expression
   ESymbol :: Symbol -> Expression
 
+instance Plated Expression where
+
 deriving instance Show Expression
-deriving instance Eq Expression 
+deriving instance Eq Expression
 deriving instance Data Expression
 deriving instance Typeable Expression
 

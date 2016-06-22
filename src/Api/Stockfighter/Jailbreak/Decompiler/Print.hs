@@ -42,6 +42,8 @@ instance PrintAst Unop where
     Dereference -> return $ PP.text "*"
     PostIncrement -> return $ PP.text "++"
     PreIncrement -> return $ PP.text "++"
+    PostDecrement -> return $ PP.text "--"
+    PreDecrement -> return $ PP.text "-"
 
 instance PrintAst Binop where
   printNode x = return $ PP.text $ case x of
@@ -55,6 +57,7 @@ instance PrintAst Binop where
     BitXor -> "^"
     BitShiftRight -> ">>"
     BitShiftLeft -> "<<"
+    NotEqual -> "!="
     Equal -> "="
     GreaterOrEqual -> ">="
     Greater -> ">"
@@ -114,6 +117,7 @@ instance PrintAst Expression where
             b <- printNode exp
             case unop of
               PostIncrement -> return $ maybeParenthesize b <> a
+              PostDecrement -> return $ maybeParenthesize b <> a
               _ -> return $ a <> maybeParenthesize b
           EBinop binop exp1 exp2 -> do
             a <- printNode exp1
