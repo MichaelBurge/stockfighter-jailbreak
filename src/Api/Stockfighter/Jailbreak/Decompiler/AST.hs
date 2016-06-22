@@ -143,6 +143,11 @@ data Binop = Plus
            | BitXor
            | BitShiftRight
            | BitShiftLeft
+           | Equal
+           | GreaterOrEqual
+           | Greater
+           | LessOrEqual
+           | Less
            | Assign
            | AssignPlus
            | AssignMinus

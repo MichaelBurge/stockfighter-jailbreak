@@ -219,7 +219,17 @@ pass_groupBySymbol = do
 -- 3. Types are deduced by seeing what kinds of instructions use them. adiw for example takes register pairs.
 deduceFunctionParameters :: Function -> Function
 deduceFunctionParameters function = undefined
-                    
+
+set_expr :: Setter' Statement Expression
+set_expr = setting f
+  where
+    f g = replaceSubtree (replaceExprs g)
+    replaceExprs g stmt = case stmt of
+      SExpression a e -> pure $ SExpression a $ g e
+      SIfElse a cond s1 s2 -> pure $ SIfElse a (g cond) s1 s2
+      SWhile a cond s -> pure $ SWhile a (g cond) s
+      _ -> [stmt]
+  
 spliceListPoints :: [(Int, a)] -> [Int] -> [[(Int, a)]]
 spliceListPoints elems splicePoints = case splicePoints of
   [] -> [ elems ]
@@ -428,20 +438,28 @@ converge p (x:ys@(y:_))
     | p x y     = y
     | otherwise = converge p ys
 
+anyCompare :: Binop -> Bool
+anyCompare Equal = True
+anyCompare GreaterOrEqual = True
+anyCompare Greater = True
+anyCompare LessOrEqual = True
+anyCompare Less = True
+anyCompare _ = False
+
 expr_simplify :: Expression -> Maybe Expression
 expr_simplify = \case
   EBinop AssignPlus x1 x2 | x1 == x2 -> Just $ EBinop AssignMultiply x1 (eImm8 $ Imm8 2)
+  EBinop binop@(anyCompare -> True) (EBinop Subtract e1 e2) (ELiteral (anyLiteral -> 0)) -> Just $ EBinop binop e1 e2
   x -> Nothing
 
 pass_simplify :: Pass
 pass_simplify = do
   ctx_statements %= map (converge (==) . iterate (replaceSubtree simplify))
+  ctx_statements %= map (replaceSubtree deleteEmptyBlocks)
   return ()
   where
-    simplify stmt = case stmt of
-      (SExpression anno x) -> case expr_simplify x of
-        Nothing -> [ stmt ]
-        Just y -> [ SExpression anno y ]
+    simplify stmt = pure $ stmt & set_expr %~ \e -> fromMaybe e (expr_simplify e)
+    deleteEmptyBlocks stmt = case stmt of
       (SBlock anno1 []) -> []
       _ -> [ stmt ]
 
@@ -462,10 +480,10 @@ expandAssignment x =
     EBinop (table -> Just binop) a b -> eAssign a (binop a b)
     _ -> x
 
-anyLit :: Literal -> Int
-anyLit (LImm8 (Imm8 x)) = x
-anyLit (LImm16 (Imm16 x)) = x
-anyLit (LImm32 (Imm32 x)) = x
+anyLiteral :: Literal -> Int
+anyLiteral (LImm8 (Imm8 x)) = x
+anyLiteral (LImm16 (Imm16 x)) = x
+anyLiteral (LImm32 (Imm32 x)) = x
 
 pass_fuse2Statements :: Pass
 pass_fuse2Statements = do
@@ -488,7 +506,7 @@ pass_fuse2Statements = do
       (EUnop Dereference (ELiteral (LImm16 (Imm16 i1))), EUnop Dereference (ELiteral (LImm16 (Imm16 i2)))) -> f $ eDereference (eImm16 $ Imm16 i1)
       (EUnop Dereference (ELiteral (LImm32 (Imm32 i1))), EUnop Dereference (ELiteral (LImm32 (Imm32 i2)))) -> f $ eDereference (eImm32 $ Imm32 i1)
       (pImm8 -> Just (Imm8 imm8_1), pImm8 -> Just (Imm8 imm8_2)) -> f $ eImm16 $ Imm16 $ imm8_1 + 256 * imm8_2
-      (EUnop Dereference (EReg16 r16_1), EUnop Dereference (EBinop Plus (EReg16 r16_2) (ELiteral (anyLit -> 1))))| r16_1 == r16_2 -> f $ eDereference (EReg16 r16_1)
+      (EUnop Dereference (EReg16 r16_1), EUnop Dereference (EBinop Plus (EReg16 r16_2) (ELiteral (anyLiteral -> 1))))| r16_1 == r16_2 -> f $ eDereference (EReg16 r16_1)
       _ -> Nothing
 
     fuse2Expressions exprs = case exprs of
@@ -518,6 +536,7 @@ fuseMultibytePtrs stmts =
 anyBranch :: AstInstruction -> Maybe (RelPtr, Expression -> Expression)
 anyBranch (Brne relptr) = Just (relptr, id)
 anyBranch (Breq relptr) = Just (relptr, EUnop Not)
+anyBranch (Brge relptr) = Just (relptr, \e -> EBinop GreaterOrEqual e (eImm8 $ Imm8 0))
 anyBranch _ = Nothing
 
 fuse3Instrs :: [ Statement ] -> Maybe [ Statement ]
