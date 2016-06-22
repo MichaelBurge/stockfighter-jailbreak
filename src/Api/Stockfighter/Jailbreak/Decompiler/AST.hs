@@ -167,6 +167,7 @@ data Expression where
   ECall :: Expression -> [ Expression ] -> Expression
   EReg8 :: Register -> Expression
   EReg16 :: Reg16 -> Expression
+  ESymbol :: Symbol -> Expression
 
 deriving instance Show Expression
 deriving instance Eq Expression 

@@ -121,6 +121,7 @@ instance PrintAst Expression where
             return $ a <> parens ( mconcat $ punctuate comma xs )
           EReg8 r8 -> printNode r8
           EReg16 r16 -> printNode r16
+          ESymbol (Symbol x _) -> return $ PP.text $ T.unpack x
     in result
 
 instance PrintAst Instruction where

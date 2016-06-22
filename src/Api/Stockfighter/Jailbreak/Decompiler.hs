@@ -22,6 +22,7 @@ decompile instructions =
   in flip execStateT context $ do
     -- Instruction-level passes
     pass_groupBySymbol
+    pass_rewriteCallInstructionsToCallSymbols
     pass_fuse3Instrs
     pass_replaceLocalJumpsWithGotos
     pass_fuseMultibytePtrs

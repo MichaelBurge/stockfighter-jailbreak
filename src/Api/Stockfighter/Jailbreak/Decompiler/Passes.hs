@@ -6,7 +6,7 @@ import Api.Stockfighter.Jailbreak.Decompiler.AST
 import Api.Stockfighter.Jailbreak.Types
 
 import Control.Monad.Trans.State.Strict
-import Control.Lens hiding (Context)
+import Control.Lens hiding (Context, elements)
 import Data.Data
 import Data.Function (on)
 import Data.List
@@ -26,7 +26,10 @@ mapi f xs = zipWith f xs [0..]
 parseSymbol :: T.Text -> Symbol
 parseSymbol symbolS =
   let name = T.takeWhile (/= '>') $ T.tail $ T.dropWhile (/= '<') $ symbolS
-      offset = fromIntegral $ fst $ either undefined id $ T.decimal $ T.takeWhile (/= ':') symbolS
+      reader = case T.find (=='<') symbolS of
+        Nothing -> T.decimal
+        Just _ -> T.hexadecimal
+      offset = fromIntegral $ fst $ either undefined id $ reader $ T.takeWhile (/= ':') symbolS
   in Symbol {
     _sym_symbol = name,
     _sym_offset = offset
@@ -614,3 +617,20 @@ pass_fuseLabelsAndGotosIntoWhileLoops = do
       Just (anno, cond) -> 
         let newStmts = map (replaceGotosWithContinue labelId) $ init stmts
         in Just [ SWhile anno cond (SBlock anno newStmts)]
+
+offsetSymbolTable :: Table Symbol -> M.IntMap Symbol
+offsetSymbolTable symbolTable = M.fromList $ map (\(k, sym@(Symbol _ offset)) -> (offset, sym)) $ M.assocs $ symbolTable ^. elements
+  
+
+pass_rewriteCallInstructionsToCallSymbols :: Pass
+pass_rewriteCallInstructionsToCallSymbols = do
+  ctx <- get
+  let offsetTable = offsetSymbolTable $ ctx ^. ctx_functions
+  ctx_statements %= map (replaceSubtree (rewriteCalls offsetTable))
+  return ()
+  where
+    rewriteCalls offsetTable stmt = case stmt of
+      SAsm anno (iex_astI -> Call (Imm32 offset)) -> case M.lookup offset offsetTable of
+        Nothing -> [ stmt ] 
+        Just sym -> [ SExpression anno $ ECall (ESymbol sym) [] ]
+      _ -> [ stmt ]
