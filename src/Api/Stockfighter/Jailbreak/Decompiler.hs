@@ -36,7 +36,7 @@ decompile instructions =
 
     -- Block-level passes
     pass_fuseLabelsAndGotosIntoWhileLoops
-
+    pass_fuseLabelsGotosIfsIntoIfBlocks
     pass_simplify
 
 print_ast :: [ Statement ] -> IO ()
