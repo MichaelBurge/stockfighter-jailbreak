@@ -30,14 +30,16 @@ decompile instructions =
     pass_replaceSingleInstructions
 
     -- Statement-level passes
-    pass_simplify
-    pass_fuseRedundantLabels
-    pass_fuse2Statements
+    fixPass $ do
+      pass_simplify
+      pass_fuseRedundantLabels
+      pass_fuse2Statements
 
     -- Block-level passes
-    pass_fuseLabelsAndGotosIntoWhileLoops
-    pass_fuseLabelsGotosIfsIntoIfBlocks
-    pass_simplify
+    fixPass $ do
+      pass_fuseLabelsAndGotosIntoWhileLoops
+      pass_fuseLabelsGotosIfsIntoIfBlocks
+      pass_simplify
 
 print_ast :: [ Statement ] -> IO ()
 print_ast statements = do

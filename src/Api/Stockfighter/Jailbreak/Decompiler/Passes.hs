@@ -418,6 +418,8 @@ replaceSingleInstructions stmt =
   SAsm anno (iex_astI -> Ldyp r) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop PostIncrement (EUnop Dereference (EReg16 RY))) ]
   SAsm anno (iex_astI -> Ldyp r) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop PostIncrement (EUnop Dereference (EReg16 RY))) ]
   SAsm anno (iex_astI -> Stdz imm r) -> [ SExpression anno $ EBinop Assign (EUnop Dereference (EBinop Plus (EReg16 RZ) (ELiteral $ LImm8 imm))) (EReg8 r)]
+  SAsm anno (iex_astI -> Stx r) -> [ SExpression anno $ eAssign (eDereference $ EReg16 RX) (EReg8 r)]
+  SAsm anno (iex_astI -> Sty r) -> [ SExpression anno $ eAssign (eDereference $ EReg16 RY) (EReg8 r)]
   SAsm anno (iex_astI -> Stz r) -> [ SExpression anno $ eAssign (eDereference $ EReg16 RZ) (EReg8 r)]
   SAsm anno (iex_astI -> Stxp r) -> [ SExpression anno $ eAssign (eDereference $ ePostIncrement (EReg16 RX)) (EReg8 r) ]
   SAsm anno (iex_astI -> Styp q r) -> [ SExpression anno $ eAssign (eDereference $ ePlus (EReg16 RY) (eImm8 q)) (EReg8 r) ]
@@ -552,8 +554,8 @@ fuseMultibytePtrs stmts =
   in case stmts of
     (SAsm anno1 (iex_astI -> Add r1 r3): SAsm anno2 (iex_astI -> Adc r2 r4):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 AssignPlus
     (SAsm anno1 (iex_astI -> Subi r1 (Imm8 imm8_1)): SAsm anno2 (iex_astI -> Sbci r2 (Imm8 imm8_2)):[]) ->
-      fmap pure $ withPair r1 r2 $ \r16 ->
-      Just $ SExpression anno1 (EBinop AssignMinus (EReg16 r16) (ELiteral $ LImm8 (Imm8 $ imm8_1 + 2^8 * imm8_2)))
+      withPair r1 r2 $ \r16 ->
+      Just [ SExpression anno1 (EBinop AssignMinus (EReg16 r16) (ELiteral $ LImm8 (Imm8 $ imm8_1 + 2^8 * imm8_2))) ]
     (SAsm anno1 (iex_astI -> Mov r1 r3): SAsm anno2 (iex_astI -> Or r2 r4):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 Assign
     (SAsm anno1 (iex_astI -> Eor r1 r3): SAsm anno2 (iex_astI -> Eor r2 r4):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 AssignBitXor
     (SAsm anno1 (iex_astI -> Ldxp r1): SAsm anno2 (iex_astI -> Ldx r2):[]) -> withPair r1 r2 $ \r16 ->
@@ -572,6 +574,7 @@ anyBranch :: AstInstruction -> Maybe (RelPtr, Expression -> Expression)
 anyBranch (Brne relptr) = Just (relptr, id)
 anyBranch (Breq relptr) = Just (relptr, EUnop Not)
 anyBranch (Brge relptr) = Just (relptr, \e -> EBinop GreaterOrEqual e (eImm8 $ Imm8 0))
+anyBranch (Brcc relptr) = Just (relptr, \e -> EBinop Less e eZero)
 anyBranch _ = Nothing
 
 fuse3Instrs :: [ Statement ] -> Maybe [ Statement ]
@@ -589,8 +592,10 @@ fuse3Instrs stmts =
     (SAsm anno1 (iex_astI -> Cpi r1 imm): SAsm anno2 (iex_astI -> Cpc r2 r3): SAsm anno3 (anyBranchI -> Just (relptr, condMod)):[]) ->
       withPair r1 r2 $ \r16 -> genIfElse anno1 anno3 relptr condMod $ compare (EReg8 r1) (EReg8 r2) (eImm8 imm) (EReg8 r3)
     (SAsm anno1 (iex_astI -> Cp r1 r2): SAsm anno2 (iex_astI -> Cpc r3 r4):SAsm anno3 (anyBranchI -> Just (relptr, condMod)):[]) ->
-      withPair r1 r3 $ \r16_1 -> withPair r2 r4 $ \r16_2 ->
-      genIfElse anno1 anno3 relptr condMod $ eSub (EReg16 r16_1) (EReg16 r16_2)
+      if r2 == regZero && r4 == regZero
+      then withPair r1 r2 $ \r16 -> genIfElse anno1 anno3 relptr condMod $ EReg16 r16
+      else withPair r1 r3 $ \r16_1 -> withPair r2 r4 $ \r16_2 ->
+             genIfElse anno1 anno3 relptr condMod $ eSub (EReg16 r16_1) (EReg16 r16_2)
     _ -> Nothing
       
 fuseRedundantLabels :: [ Statement ] -> Maybe [ Statement ]
@@ -711,6 +716,13 @@ pass_fuseLabelsGotosIfsIntoIfBlocks = do
 offsetSymbolTable :: Table Symbol -> M.IntMap Symbol
 offsetSymbolTable symbolTable = M.fromList $ map (\(k, sym@(Symbol _ offset)) -> (offset, sym)) $ M.assocs $ symbolTable ^. elements
   
+
+fixPass :: Pass -> Pass
+fixPass pass = do
+  ctx1 <- get
+  pass
+  ctx2 <- get
+  when (ctx1 /= ctx2) pass
 
 pass_rewriteCallInstructionsToCallSymbols :: Pass
 pass_rewriteCallInstructionsToCallSymbols = do

@@ -43,7 +43,7 @@ instance PrintAst Unop where
     PostIncrement -> return $ PP.text "++"
     PreIncrement -> return $ PP.text "++"
     PostDecrement -> return $ PP.text "--"
-    PreDecrement -> return $ PP.text "-"
+    PreDecrement -> return $ PP.text "--"
 
 instance PrintAst Binop where
   printNode x = return $ PP.text $ case x of

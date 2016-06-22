@@ -106,7 +106,7 @@ data Symbol = Symbol {
 data Table a = Table {
   _elements :: M.IntMap a,
   _nextId :: Int
-  } deriving (Show)
+  } deriving (Eq, Show)
 
 instance Monoid (Table a) where
   mempty = Table mempty 0
@@ -116,7 +116,7 @@ data Context = Context {
   _ctx_functions  :: Table Symbol,
   _ctx_variables  :: Table Statement,
   _ctx_statements :: [ Statement ]
-  } deriving (Show)
+  } deriving (Eq, Show)
 
 instance Monoid Context where
   mempty = Context mempty mempty mempty
