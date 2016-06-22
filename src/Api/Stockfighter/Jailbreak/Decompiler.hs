@@ -33,6 +33,11 @@ decompile instructions =
     pass_fuseRedundantLabels
     pass_fuse2Statements
 
+    -- Block-level passes
+    pass_fuseLabelsAndGotosIntoWhileLoops
+
+    pass_simplify
+
 print_ast :: [ Statement ] -> IO ()
 print_ast statements = do
   let result = flip runReader mempty $ sep <$> forM statements printNode

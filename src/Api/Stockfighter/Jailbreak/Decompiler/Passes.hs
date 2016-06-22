@@ -185,7 +185,7 @@ parseInstruction instruction =
     Just x -> x
 
 iex_asm :: InstructionEx -> Statement
-iex_asm x@(InstructionEx{ iex_i = Instruction{ offset = o }}) = SAsm (StatementAnnotation o [ x ]) x
+iex_asm x@(InstructionEx{ iex_i = Instruction{ offset = o }}) = SAsm (StatementAnnotation o [ x ] Nothing) x
 
 -- | Groups instructions by their symbol attribute, adding entries in the global symbol table
 pass_groupBySymbol :: Pass
@@ -204,7 +204,7 @@ pass_groupBySymbol = do
   let newFunctions = M.fromList $ map (\(a,b,c) -> (a,b)) split_groups
       mkInstructionEx i = InstructionEx i (parseInstruction i)
   let statements = flip map split_groups $ \(idx, sym, instructions) ->
-        let anno = (StatementAnnotation (sym ^. sym_offset) iexs)
+        let anno = (StatementAnnotation (sym ^. sym_offset) iexs Nothing)
         in SFunction anno TVoid sym [] $
            SBlock anno $ map iex_asm $ map mkInstructionEx instructions
   ctx_functions <>= Table newFunctions (M.size newFunctions)
@@ -235,30 +235,6 @@ pass_replaceBranchesWithJumps = do
   ctx <- get
   ctx_statements %= map (replaceGroup 2 replaceBranchesWithJumps)
   return ()
-
-annotation :: Lens' Statement StatementAnnotation
-annotation =
-  let getter = \case
-        (SExpression a _) -> a
-        (SLabel a _) -> a
-        (SGoto a _) -> a
-        (SAsm a _) -> a
-        (SBlock a _) -> a
-        (SVariable a _ _ _) -> a
-        (SFunction a _ _ _ _) -> a
-        (SIfElse a _ _ _) -> a
-        (SReturn a _) -> a
-      setter a x = case a of
-        (SExpression a b) -> SExpression x b
-        (SLabel a b) -> SLabel x b
-        (SGoto a b) -> SGoto x b
-        (SAsm a b) -> SAsm x b
-        (SBlock a b) -> SBlock x b
-        (SVariable a b c d) -> SVariable x b c d
-        (SFunction a b c d e) -> SFunction x b c d e
-        (SIfElse a b c d) -> SIfElse x b c d
-        (SReturn a b) -> SReturn x b
-  in lens getter setter
 
 -- instance Functor StatementEx where
 --   fmap f statement =
@@ -315,6 +291,8 @@ normalizeStatement stat =
     SFunction a b c ds e -> SFunction a b c (map normalizeStatement ds) (normalizeStatement e)
     SIfElse a b c d -> SIfElse a b (normalizeStatement c) (normalizeStatement d)
     SReturn _ _ -> stat
+    SWhile a b stmt -> SWhile a b (normalizeStatement stmt)
+    SContinue _ -> stat
 
 replaceSubtree :: (Statement -> [ Statement ] ) -> Statement -> Statement
 replaceSubtree f stat =
@@ -330,6 +308,8 @@ replaceSubtree f stat =
        SFunction a b c ds e -> SFunction a b c (map rewrite ds) (rewrite e)
        SIfElse a b c d -> SIfElse a b (rewrite c) (rewrite d)
        SReturn _ _ -> stat
+       SWhile a b c -> SWhile a b (rewrite c)
+       SContinue _ -> stat
 
 replace :: Int -> ([a] -> Maybe [a]) -> [a] -> [a]
 replace i f [] = []
@@ -355,9 +335,9 @@ replaceGroup i f stat =
 
 labelAndGotoForRelptr :: StatementAnnotation -> RelPtr -> (Statement, Statement)
 labelAndGotoForRelptr anno (RelPtr o) =
-  let initOff = stmtAnno_offset anno
+  let initOff = anno ^. stmtAnno_offset
       labelId = LabelId $ initOff + o
-  in ((SLabel (StatementAnnotation (initOff + o) [ ]) labelId),
+  in ((SLabel (StatementAnnotation (initOff + o) [ ] (Just labelId)) labelId),
       (SGoto anno labelId))
 
 eAssign = EBinop Assign
@@ -435,13 +415,20 @@ converge p (x:ys@(y:_))
     | p x y     = y
     | otherwise = converge p ys
 
+expr_simplify :: Expression -> Maybe Expression
+expr_simplify = \case
+  EBinop AssignPlus x1 x2 | x1 == x2 -> EBinop AssignMultiply x1 (eImm8 $ Imm8 2)
+  EBinop Plus 
+  x -> x
+
 pass_simplify :: Pass
 pass_simplify = do
   ctx_statements %= map (converge (==) . iterate (replaceSubtree simplify))
   return ()
   where
     simplify stmt = case stmt of
-      (SExpression anno1 (EBinop AssignPlus x1 x2)) | x1 == x2 -> [(SExpression anno1 (EBinop AssignMultiply x1 (eImm8 $ Imm8 2)))]
+      (SExpression anno x) -> SExpression anno $ expr_simplify x
+      (SBlock anno1 []) -> []
       _ -> [ stmt ]
 
 expandAssignment :: Expression -> Expression
@@ -540,3 +527,62 @@ replaceBranchesWithJumps stmts =
       in Just [ label, SIfElse anno1 (EUnop Not (EReg8 r1)) goto (SBlock anno2 [])]
 
     _ -> Nothing
+
+extractSubsequence :: (a -> Maybe b) -> (b -> a -> Maybe c) -> [a] -> ([a], (Maybe b, Maybe c, [a]),[a])
+extractSubsequence fstart fstop xs =
+  let g start middle end mStartS mStopS [] = (reverse start, (mStartS, mStopS, reverse middle), reverse end)
+      g start middle end mStartS mStopS (x:xs) =
+        case (mStartS, mStopS) of
+          (Nothing, Nothing) -> case fstart x of
+            Nothing -> g (x:start) middle end mStartS mStopS xs
+            Just s -> g start (x:middle) end (Just s) mStopS xs
+          (Just startS, Nothing) -> case fstop startS x of
+            Nothing -> g start (x:middle) end mStartS mStopS xs
+            Just s -> g start (x:middle) end mStartS (Just s) xs
+          (Just startS, Just endS) -> g start middle (x:end) mStartS (Just endS) xs
+          (Nothing, Just _) -> Prelude.error "extractSubsequence: Impossible case"
+  in g [] [] [] Nothing Nothing xs
+
+-- | Given functions that mark the start and end of a subsequence, and a function to replace the subsequence, executes a replace of the entire sequence that changes only the subsequence.
+replaceSubsequence::(Statement-> Maybe a)->
+                    (a-> Statement-> Maybe b) ->
+                    (a -> Maybe b -> [Statement] -> Maybe [Statement]) ->
+                    [ Statement ] ->
+                    Maybe [Statement]
+replaceSubsequence fstart fend ffinalize stmts =
+  let (start, (ms_start, ms_end, middle), end) = extractSubsequence fstart fend stmts
+  in case ms_start of
+    Nothing -> Nothing
+    Just s_start -> case ffinalize s_start ms_end middle of
+      Nothing -> Nothing
+      Just newMiddle -> Just $ start ++ newMiddle ++ end
+
+replaceBlockSubsequence ::(Statement->Maybe a)->(a->Statement->Maybe b)->(a->Maybe b->[Statement]->Maybe [Statement])->[Statement]->[Statement]
+replaceBlockSubsequence fstart fend ffinalize stmts = map (replaceSubtree f) stmts
+  where
+    f stmt = case stmt of
+      SBlock _ children -> case replaceSubsequence fstart fend ffinalize children of
+        Nothing -> [stmt]
+        Just stmts -> stmts
+      _ -> [ stmt ]
+
+pass_fuseLabelsAndGotosIntoWhileLoops :: Pass
+pass_fuseLabelsAndGotosIntoWhileLoops = do
+  ctx_statements %= (replaceBlockSubsequence markLabel markIf wrapWhile)
+  return ()
+  where
+    markLabel stmt = case stmt of
+      SLabel _ labelId -> Just labelId
+      _ -> Nothing
+    markIf labelId stmt = case stmt of
+      SIfElse anno cond (SGoto _ gotoLabelId) (SBlock _ []) | labelId == gotoLabelId -> Just (anno, cond)
+      _ -> Nothing
+    replaceGotosWithContinue labelId stmts = flip replaceSubtree stmts $ \case
+      SGoto anno labelId2 | labelId == labelId2 -> [ SContinue (anno & stmtAnno_label .~ Just labelId) ]
+      SLabel anno labelId2 | labelId == labelId2 -> []
+      stmt -> [ stmt ]
+    wrapWhile labelId mEnd stmts = case mEnd of
+      Nothing -> Nothing
+      Just (anno, cond) -> 
+        let newStmts = map (replaceGotosWithContinue labelId) $ init stmts
+        in Just [ SWhile anno cond (SBlock anno newStmts)]

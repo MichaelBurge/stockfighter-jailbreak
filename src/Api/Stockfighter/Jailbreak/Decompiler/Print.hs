@@ -176,6 +176,11 @@ instance PrintAst (StatementEx a) where
         Just x -> do
           a <- printNode x
           return $ PP.text "return" <+> a
+    SWhile _ cond stmt -> do
+      a <- printNode cond
+      b <- printNode stmt
+      return $ PP.text "while" <+> parens a $+$ hang empty 4 b
+    SContinue _ -> return $ PP.text "continue"
 
 instance PrintAst a => PrintAst (Maybe a) where
   printNode Nothing = return empty

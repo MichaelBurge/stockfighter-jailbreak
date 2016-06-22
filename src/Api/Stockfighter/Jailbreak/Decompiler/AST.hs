@@ -7,9 +7,11 @@ import Api.Stockfighter.Jailbreak.Types
 import qualified Data.IntMap.Strict as M
 import qualified Data.Text as T
 
+import Control.Lens hiding (Context)
 import Control.Lens.TH
 import Control.Monad.Trans.Reader
 import Data.Data
+import Data.Function (on)
 import Data.Monoid
 import Data.Typeable
 import Numeric
@@ -315,12 +317,38 @@ data InstructionEx = InstructionEx {
   } deriving (Eq, Show, Data, Typeable)
 
 data StatementAnnotation = StatementAnnotation {
-  stmtAnno_offset :: Int,
-  stmtAnno_is     :: [ InstructionEx ]
+  _stmtAnno_offset :: Int,
+  _stmtAnno_is     :: [ InstructionEx ],
+  _stmtAnno_label  :: Maybe LabelId
   } deriving (Eq, Show, Data, Typeable)
-
-instance Ord StatementAnnotation where
-  compare (StatementAnnotation{stmtAnno_offset = offset1}) (StatementAnnotation{stmtAnno_offset = offset2}) = offset1 `compare` offset2
+                           
+annotation :: Lens' Statement StatementAnnotation
+annotation =
+  let getter = \case
+        (SExpression a _) -> a
+        (SLabel a _) -> a
+        (SGoto a _) -> a
+        (SAsm a _) -> a
+        (SBlock a _) -> a
+        (SVariable a _ _ _) -> a
+        (SFunction a _ _ _ _) -> a
+        (SIfElse a _ _ _) -> a
+        (SReturn a _) -> a
+        (SWhile a _ _) -> a
+        (SContinue a) -> a
+      setter a x = case a of
+        (SExpression a b) -> SExpression x b
+        (SLabel a b) -> SLabel x b
+        (SGoto a b) -> SGoto x b
+        (SAsm a b) -> SAsm x b
+        (SBlock a b) -> SBlock x b
+        (SVariable a b c d) -> SVariable x b c d
+        (SFunction a b c d e) -> SFunction x b c d e
+        (SIfElse a b c d) -> SIfElse x b c d
+        (SReturn a b) -> SReturn x b
+        (SWhile a b c) -> SWhile x b c
+        (SContinue a) -> SContinue x
+  in lens getter setter
 
 data StatementEx a where
   SExpression :: (Eq a, Show a) => a -> Expression -> StatementEx a
@@ -332,6 +360,8 @@ data StatementEx a where
   SFunction   :: (Eq a, Show a) => a -> Type -> Symbol -> [ StatementEx a] -> StatementEx a -> StatementEx a
   SIfElse     :: (Eq a, Show a) => a -> Expression -> StatementEx a -> StatementEx a -> StatementEx a
   SReturn     :: (Eq a, Show a) => a -> Maybe Expression -> StatementEx a
+  SWhile      :: (Eq a, Show a) => a -> Expression -> StatementEx a -> StatementEx a
+  SContinue   :: (Eq a, Show a) => a -> StatementEx a
 
 
 deriving instance Show (StatementEx a)
@@ -349,3 +379,7 @@ makeLenses ''StatementEx
 makePrisms ''Binop
 makeLenses ''Type
 makeLenses ''Expression
+makeLenses ''StatementAnnotation
+
+instance Ord StatementAnnotation where
+  compare = compare `on` (\x -> x ^. stmtAnno_offset)
