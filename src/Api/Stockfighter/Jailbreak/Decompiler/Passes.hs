@@ -515,16 +515,29 @@ fuseMultibytePtrs stmts =
 
     _ -> Nothing
 
+anyBranch :: AstInstruction -> Maybe (RelPtr, Expression -> Expression)
+anyBranch (Brne relptr) = Just (relptr, id)
+anyBranch (Breq relptr) = Just (relptr, EUnop Not)
+anyBranch _ = Nothing
+
 fuse3Instrs :: [ Statement ] -> Maybe [ Statement ]
-fuse3Instrs stmts = case stmts of
-  (SAsm anno1 (iex_astI -> Cpi r1 imm): SAsm anno2 (iex_astI -> Cpc r2 r3): SAsm anno3 (iex_astI -> Brne relptr):[]) ->
-   withPair r1 r2 $ \r16 ->
-    let (label,goto) = labelAndGotoForRelptr anno3 relptr
-        sub1 = eSub (EReg8 r1) (eImm8 imm)
-        sub2 = eSub (EReg8 r2) (EReg8 r3)
-        condition = ePlus sub1 (eShiftRight sub2 (eImm8 $ Imm8 8))
-    in Just [ label, SIfElse anno1 condition goto (SBlock anno2 []) ]
-  _ -> Nothing
+fuse3Instrs stmts =
+  let compare e1 e2 e3 e4 =
+        let sub1 = eSub e1 e3
+            sub2 = eSub e2 e4
+            condition = ePlus sub1 (eShiftRight sub2 (eImm8 $ Imm8 8))
+        in condition
+      anyBranchI = anyBranch . iex_astI
+      genIfElse annoIf annoBlock relptr condMod condition =
+        let (label,goto) = labelAndGotoForRelptr annoBlock relptr
+        in Just [ label, SIfElse annoIf (condMod condition) goto (SBlock annoBlock []) ]
+  in case stmts of
+    (SAsm anno1 (iex_astI -> Cpi r1 imm): SAsm anno2 (iex_astI -> Cpc r2 r3): SAsm anno3 (anyBranchI -> Just (relptr, condMod)):[]) ->
+      withPair r1 r2 $ \r16 -> genIfElse anno1 anno3 relptr condMod $ compare (EReg8 r1) (EReg8 r2) (eImm8 imm) (EReg8 r3)
+    (SAsm anno1 (iex_astI -> Cp r1 r2): SAsm anno2 (iex_astI -> Cpc r3 r4):SAsm anno3 (anyBranchI -> Just (relptr, condMod)):[]) ->
+      withPair r1 r3 $ \r16_1 -> withPair r2 r4 $ \r16_2 ->
+      genIfElse anno1 anno3 relptr condMod $ eSub (EReg16 r16_1) (EReg16 r16_2)
+    _ -> Nothing
       
 fuseRedundantLabels :: [ Statement ] -> Maybe [ Statement ]
 fuseRedundantLabels stmts = case stmts of
