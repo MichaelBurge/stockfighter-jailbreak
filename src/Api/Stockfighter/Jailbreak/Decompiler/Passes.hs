@@ -360,6 +360,15 @@ eShiftLeft = EBinop BitShiftLeft
 eDereference = EUnop Dereference
 
 eImm8 = ELiteral . LImm8
+eImm16 = ELiteral . LImm16
+eImm32 = ELiteral . LImm32
+
+pImm8 (ELiteral (LImm8 x)) = Just x
+pImm8 _ = Nothing
+pImm16 (ELiteral (LImm16 x)) = Just x
+pImm16 _ = Nothing
+pImm32 (ELiteral (LImm32 x)) = Just x
+pImm32 _ = Nothing
 
 replaceSingleInstructions :: Statement -> [ Statement ]
 replaceSingleInstructions stmt = case stmt of
@@ -417,9 +426,8 @@ converge p (x:ys@(y:_))
 
 expr_simplify :: Expression -> Maybe Expression
 expr_simplify = \case
-  EBinop AssignPlus x1 x2 | x1 == x2 -> EBinop AssignMultiply x1 (eImm8 $ Imm8 2)
-  EBinop Plus 
-  x -> x
+  EBinop AssignPlus x1 x2 | x1 == x2 -> Just $ EBinop AssignMultiply x1 (eImm8 $ Imm8 2)
+  x -> Nothing
 
 pass_simplify :: Pass
 pass_simplify = do
@@ -427,7 +435,9 @@ pass_simplify = do
   return ()
   where
     simplify stmt = case stmt of
-      (SExpression anno x) -> SExpression anno $ expr_simplify x
+      (SExpression anno x) -> case expr_simplify x of
+        Nothing -> [ stmt ]
+        Just y -> [ SExpression anno y ]
       (SBlock anno1 []) -> []
       _ -> [ stmt ]
 
@@ -460,8 +470,22 @@ pass_fuse2Statements = do
         Just [SExpression anno1 (EBinop AssignMultiply x1 (EBinop Multiply x2 x4))]
       (SExpression anno1 (EBinop AssignBitShiftRight x1 x2): SExpression anno2 (EBinop AssignBitShiftRight x3 x4):[]) | x1 == x3 ->
         Just [SExpression anno1 (EBinop AssignBitShiftRight x1 (EBinop Plus x2 x4))]
-      (SExpression anno1 (EBinop Assign x1 x2): SExpression anno2 (expandAssignment -> EBinop Assign x3 (EBinop binop x4 x5)):[]) | x1 == x3 && x3 == x4 -> Just [ SExpression anno1 (EBinop Assign x1 (EBinop binop x2 x5)) ]                                                                                                                                   
+      (SExpression anno1 (EBinop Assign x1 x2): SExpression anno2 (expandAssignment -> EBinop Assign x3 (EBinop binop x4 x5)):[]) | x1 == x3 && x3 == x4 -> Just [ SExpression anno1 (EBinop Assign x1 (EBinop binop x2 x5)) ]
+      (SExpression anno1 e1: SExpression anno2 e2:[]) -> (pure . SExpression anno1) <$> fuse2Expressions [e1,e2]
       _ -> Nothing
+
+    withExprPair x1 x2 f = case (x1, x2) of
+      (EUnop Dereference (ELiteral (LImm8 (Imm8 i1))), EUnop Dereference (ELiteral (LImm8 (Imm8 i2)))) -> f $ eDereference (eImm8 $ Imm8 i1)
+      (EUnop Dereference (ELiteral (LImm16 (Imm16 i1))), EUnop Dereference (ELiteral (LImm16 (Imm16 i2)))) -> f $ eDereference (eImm16 $ Imm16 i1)
+      (EUnop Dereference (ELiteral (LImm32 (Imm32 i1))), EUnop Dereference (ELiteral (LImm32 (Imm32 i2)))) -> f $ eDereference (eImm32 $ Imm32 i1)
+      (pImm8 -> Just (Imm8 imm8_1), pImm8 -> Just (Imm8 imm8_2)) -> f $ eImm16 $ Imm16 $ imm8_1 + 256 * imm8_2
+      _ -> Nothing
+
+    fuse2Expressions exprs = case exprs of
+      (EBinop Assign (EReg8 r1) x1: EBinop Assign (EReg8 r2) x2:[]) -> withPair r1 r2 $ \r16 -> withExprPair x1 x2 $ \exp ->
+        Just $ eAssign (EReg16 r16) exp
+      _ -> Nothing
+
 
 fuseMultibytePtrs :: [ Statement ] -> Maybe [ Statement ]
 fuseMultibytePtrs stmts =
@@ -478,6 +502,7 @@ fuseMultibytePtrs stmts =
              SExpression anno1 (EUnop PostIncrement (EReg16 RX))]
     (SAsm anno1 (iex_astI -> Ldyp r1): SAsm anno2 (iex_astI -> Ldy r2):[]) -> withPair r1 r2 $ \r16 ->
       Just [ SExpression anno1 (EBinop Assign (EReg16 r16) (EUnop Dereference (EUnop PostIncrement (EReg16 RY))))]
+
     _ -> Nothing
 
 fuse3Instrs :: [ Statement ] -> Maybe [ Statement ]
