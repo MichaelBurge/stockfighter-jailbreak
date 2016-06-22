@@ -19,9 +19,9 @@ import Text.PrettyPrint hiding ((<>))
 import Text.Printf
 
 newtype FunctionId = FunctionId Int deriving (Show, Eq, Data, Typeable)
-newtype LabelId = LabelId Int deriving (Show, Eq, Data, Typeable)
+newtype LabelId = LabelId Int deriving (Show, Ord, Eq, Data, Typeable)
 newtype VariableId = VariableId Int deriving (Eq, Show, Data, Typeable)
-newtype Register = Register Int deriving (Eq, Data, Typeable)
+newtype Register = Register Int deriving (Eq, Ord, Data, Typeable)
 instance Show Register where
   show (Register id) = "r" ++ show id
 
@@ -32,7 +32,7 @@ data Reg16 = R16 Int
            | RX
            | RY
            | RZ
-           deriving (Eq, Data, Typeable)
+           deriving (Eq, Ord, Data, Typeable)
 
 instance Show Reg16 where
   show (R16 i) = "R" ++ show i
@@ -68,11 +68,11 @@ data RegOp = RegOpUnchanged
            | RegOpMinus Int
            deriving (Eq, Show, Data, Typeable)
 
-newtype AbsPtr = AbsPtr Int deriving (Eq, Data, Typeable)
+newtype AbsPtr = AbsPtr Int deriving (Eq, Ord, Data, Typeable)
 instance Show AbsPtr where
   show (AbsPtr id) = printf "0x%08x" id
 
-newtype RelPtr = RelPtr Int deriving (Eq, Data, Typeable)
+newtype RelPtr = RelPtr Int deriving (Eq, Ord, Data, Typeable)
 instance Show RelPtr where
   show (RelPtr id) = "." ++ show id
 
@@ -82,19 +82,19 @@ mkRelptr id = RelPtr $
   then id - 65536
   else id
 
-newtype Imm32 = Imm32 Int deriving (Eq, Data, Typeable)
+newtype Imm32 = Imm32 Int deriving (Eq, Ord, Data, Typeable)
 instance Show Imm32 where
   show (Imm32 id) = printf "0x%08x" id
 
-newtype Imm16 = Imm16 Int deriving (Eq, Data, Typeable)
+newtype Imm16 = Imm16 Int deriving (Eq, Ord, Data, Typeable)
 instance Show Imm16 where
   show (Imm16 id) = printf "0x%04x" id
 
-newtype Imm8 = Imm8 Int deriving (Eq, Data, Typeable)
+newtype Imm8 = Imm8 Int deriving (Eq, Ord, Data, Typeable)
 instance Show Imm8 where
   show (Imm8 id) = printf "0x%02x" id
 
-newtype BitIdx = BitIdx Int deriving (Eq, Data, Typeable)
+newtype BitIdx = BitIdx Int deriving (Eq, Ord, Data, Typeable)
 instance Show BitIdx where
   show (BitIdx id) = show id
 
@@ -164,7 +164,7 @@ data Expression where
   ELiteral :: Literal -> Expression
   EUnop :: Unop -> Expression -> Expression
   EBinop :: Binop -> Expression -> Expression -> Expression
-  ECall :: Symbol -> [ Expression ] -> Expression
+  ECall :: Expression -> [ Expression ] -> Expression
   EReg8 :: Register -> Expression
   EReg16 :: Reg16 -> Expression
 
@@ -309,18 +309,18 @@ data AstInstruction = Mov Register Register
                     | Reti
                     | Unknown
                     | Nop
-                    deriving (Eq, Show, Data, Typeable)
+                    deriving (Eq, Ord, Show, Data, Typeable)
 
 data InstructionEx = InstructionEx {
   iex_i    :: Instruction,
   iex_astI :: AstInstruction
-  } deriving (Eq, Show, Data, Typeable)
+  } deriving (Eq, Ord, Show, Data, Typeable)
 
 data StatementAnnotation = StatementAnnotation {
   _stmtAnno_offset :: Int,
-  _stmtAnno_is     :: [ InstructionEx ],
-  _stmtAnno_label  :: Maybe LabelId
-  } deriving (Eq, Show, Data, Typeable)
+  _stmtAnno_label  :: Maybe LabelId,
+  _stmtAnno_is     :: [ InstructionEx ]
+  } deriving (Eq, Ord, Show, Data, Typeable)
                            
 annotation :: Lens' Statement StatementAnnotation
 annotation =
@@ -380,6 +380,3 @@ makePrisms ''Binop
 makeLenses ''Type
 makeLenses ''Expression
 makeLenses ''StatementAnnotation
-
-instance Ord StatementAnnotation where
-  compare = compare `on` (\x -> x ^. stmtAnno_offset)

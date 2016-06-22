@@ -125,10 +125,11 @@ instance PrintAst Expression where
 
 instance PrintAst Instruction where
   printNode = \Instruction{..} -> do
+    let showI = PP.text $ show offset ++ ":\t\t" ++ T.unpack dump
     case symbol of
-      Nothing -> do
-        return $ PP.text $ show offset ++ ":\t\t" ++ T.unpack dump
-      Just x -> return $ PP.text $ T.unpack x
+      Nothing -> return showI
+      Just x -> do
+        return $ (PP.text $ T.unpack x) $+$ showI
       
 instance PrintAst (StatementEx a) where
   printNode x = case x of

@@ -181,7 +181,7 @@ data Instruction = Instruction {
   offset :: Int,
   symbol :: Maybe T.Text,
   dump :: T.Text
-  } deriving (Eq, Generic, Show, Data, Typeable)
+  } deriving (Eq, Ord, Generic, Show, Data, Typeable)
 
 instance ToJSON Instruction where
 instance FromJSON Instruction where

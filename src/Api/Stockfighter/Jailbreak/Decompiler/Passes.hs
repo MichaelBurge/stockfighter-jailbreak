@@ -185,7 +185,7 @@ parseInstruction instruction =
     Just x -> x
 
 iex_asm :: InstructionEx -> Statement
-iex_asm x@(InstructionEx{ iex_i = Instruction{ offset = o }}) = SAsm (StatementAnnotation o [ x ] Nothing) x
+iex_asm x@(InstructionEx{ iex_i = Instruction{ offset = o }}) = SAsm (StatementAnnotation o Nothing [ x ]) x
 
 -- | Groups instructions by their symbol attribute, adding entries in the global symbol table
 pass_groupBySymbol :: Pass
@@ -204,7 +204,7 @@ pass_groupBySymbol = do
   let newFunctions = M.fromList $ map (\(a,b,c) -> (a,b)) split_groups
       mkInstructionEx i = InstructionEx i (parseInstruction i)
   let statements = flip map split_groups $ \(idx, sym, instructions) ->
-        let anno = (StatementAnnotation (sym ^. sym_offset) iexs Nothing)
+        let anno = (StatementAnnotation (sym ^. sym_offset) Nothing iexs)
         in SFunction anno TVoid sym [] $
            SBlock anno $ map iex_asm $ map mkInstructionEx instructions
   ctx_functions <>= Table newFunctions (M.size newFunctions)
@@ -337,7 +337,7 @@ labelAndGotoForRelptr :: StatementAnnotation -> RelPtr -> (Statement, Statement)
 labelAndGotoForRelptr anno (RelPtr o) =
   let initOff = anno ^. stmtAnno_offset
       labelId = LabelId $ initOff + o
-  in ((SLabel (StatementAnnotation (initOff + o) [ ] (Just labelId)) labelId),
+  in ((SLabel (StatementAnnotation (initOff + o) (Just labelId) []) labelId),
       (SGoto anno labelId))
 
 eAssign = EBinop Assign
@@ -394,6 +394,7 @@ replaceSingleInstructions stmt = case stmt of
   SAsm anno (iex_astI -> Ldyp r) -> [ SExpression anno $ EBinop Assign (EReg8 r) (EUnop PostIncrement (EUnop Dereference (EReg16 RY))) ]
   SAsm anno (iex_astI -> Stdz imm r) -> [ SExpression anno $ EBinop Assign (EUnop Dereference (EBinop Plus (EReg16 RZ) (ELiteral $ LImm8 imm))) (EReg8 r)]
   SAsm anno (iex_astI -> Stz r) -> [ SExpression anno $ eAssign (EReg8 r) (eDereference $ EReg16 RZ) ]
+  SAsm anno (iex_astI -> Icall) -> [ SExpression anno $ ECall (EReg16 RZ) [] ]
   SAsm anno (iex_astI -> Ret) -> [ SReturn anno Nothing ]
   SAsm anno (iex_astI -> Swap r) ->
     let higher = eShiftLeft (eAnd (EReg8 r) (eImm8 $ Imm8 0x07)) (eImm8 $ Imm8 4)
@@ -563,6 +564,7 @@ extractSubsequence fstart fstop xs =
             Just s -> g start (x:middle) end (Just s) mStopS xs
           (Just startS, Nothing) -> case fstop startS x of
             Nothing -> g start (x:middle) end mStartS mStopS xs
+            _ | any isJust $ map (fstop startS) xs -> g start (x:middle) end mStartS mStopS xs
             Just s -> g start (x:middle) end mStartS (Just s) xs
           (Just startS, Just endS) -> g start middle (x:end) mStartS (Just endS) xs
           (Nothing, Just _) -> Prelude.error "extractSubsequence: Impossible case"
@@ -593,14 +595,15 @@ replaceBlockSubsequence fstart fend ffinalize stmts = map (replaceSubtree f) stm
 
 pass_fuseLabelsAndGotosIntoWhileLoops :: Pass
 pass_fuseLabelsAndGotosIntoWhileLoops = do
-  ctx_statements %= (replaceBlockSubsequence markLabel markIf wrapWhile)
+  ctx_statements %= (replaceBlockSubsequence markLabel markGoto wrapWhile)
   return ()
   where
     markLabel stmt = case stmt of
       SLabel _ labelId -> Just labelId
       _ -> Nothing
-    markIf labelId stmt = case stmt of
+    markGoto labelId stmt = case stmt of
       SIfElse anno cond (SGoto _ gotoLabelId) (SBlock _ []) | labelId == gotoLabelId -> Just (anno, cond)
+      SGoto anno gotoLabelId | labelId == gotoLabelId -> Just (anno, eImm8 $ Imm8 1)
       _ -> Nothing
     replaceGotosWithContinue labelId stmts = flip replaceSubtree stmts $ \case
       SGoto anno labelId2 | labelId == labelId2 -> [ SContinue (anno & stmtAnno_label .~ Just labelId) ]
