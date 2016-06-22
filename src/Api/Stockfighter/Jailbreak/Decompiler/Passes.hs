@@ -462,6 +462,11 @@ expandAssignment x =
     EBinop (table -> Just binop) a b -> eAssign a (binop a b)
     _ -> x
 
+anyLit :: Literal -> Int
+anyLit (LImm8 (Imm8 x)) = x
+anyLit (LImm16 (Imm16 x)) = x
+anyLit (LImm32 (Imm32 x)) = x
+
 pass_fuse2Statements :: Pass
 pass_fuse2Statements = do
   ctx_statements %= map (converge (==) . iterate (replaceGroup 2 fuse2Statements))
@@ -483,6 +488,7 @@ pass_fuse2Statements = do
       (EUnop Dereference (ELiteral (LImm16 (Imm16 i1))), EUnop Dereference (ELiteral (LImm16 (Imm16 i2)))) -> f $ eDereference (eImm16 $ Imm16 i1)
       (EUnop Dereference (ELiteral (LImm32 (Imm32 i1))), EUnop Dereference (ELiteral (LImm32 (Imm32 i2)))) -> f $ eDereference (eImm32 $ Imm32 i1)
       (pImm8 -> Just (Imm8 imm8_1), pImm8 -> Just (Imm8 imm8_2)) -> f $ eImm16 $ Imm16 $ imm8_1 + 256 * imm8_2
+      (EUnop Dereference (EReg16 r16_1), EUnop Dereference (EBinop Plus (EReg16 r16_2) (ELiteral (anyLit -> 1))))| r16_1 == r16_2 -> f $ eDereference (EReg16 r16_1)
       _ -> Nothing
 
     fuse2Expressions exprs = case exprs of
