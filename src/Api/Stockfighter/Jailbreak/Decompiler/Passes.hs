@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings,DuplicateRecordFields,OverloadedLabels,InstanceSigs,RecordWildCards,ViewPatterns #-}
+{-# LANGUAGE OverloadedStrings,DuplicateRecordFields,OverloadedLabels,InstanceSigs,RecordWildCards,ViewPatterns,PatternSynonyms #-}
 
 module Api.Stockfighter.Jailbreak.Decompiler.Passes where
 
@@ -356,6 +356,7 @@ labelAndGotoForRelptr anno (RelPtr o) =
 
 eAssign = EBinop Assign
 eAssignPlus = EBinop AssignPlus
+eAssignMinus = EBinop AssignMinus
 eAssignXor = EBinop AssignBitXor
 eAssignAnd = EBinop AssignBitAnd
 eAssignOr = EBinop AssignBitOr
@@ -388,12 +389,21 @@ pImm16 _ = Nothing
 pImm32 (ELiteral (LImm32 x)) = Just x
 pImm32 _ = Nothing
 
+reg16_odd :: Register -> Maybe Reg16
+reg16_odd (Register 27) = Just RX
+reg16_odd (Register 29) = Just RY
+reg16_odd (Register 31) = Just RZ
+reg16_odd _ = Nothing
+
 replaceSingleInstructions :: Statement -> [ Statement ]
 replaceSingleInstructions stmt =
   let postInc = EUnop PostIncrement
       anyLdReg16 (Ldxp r) = Just (r, postInc (EReg16 RX))
       anyLdReg16 (Ldyp r) = Just (r, postInc (EReg16 RY))
       anyLdReg16 (Ldzp r) = Just (r, postInc (EReg16 RZ))
+      anyLdReg16 (Ldx r) = Just (r, EReg16 RX)
+      anyLdReg16 (Ldy r) = Just (r, EReg16 RY)
+      anyLdReg16 (Ldz r) = Just (r, EReg16 RZ)
       anyLdReg16 _ = Nothing
   in case stmt of
   SAsm anno (iex_astI -> Eor r1 r2) | r1 == r2 -> [ SExpression anno $ eAssign (EReg8 r1) eZero ]
@@ -423,9 +433,12 @@ replaceSingleInstructions stmt =
   SAsm anno (iex_astI -> Stz r) -> [ SExpression anno $ eAssign (eDereference $ EReg16 RZ) (EReg8 r)]
   SAsm anno (iex_astI -> Stxp r) -> [ SExpression anno $ eAssign (eDereference $ ePostIncrement (EReg16 RX)) (EReg8 r) ]
   SAsm anno (iex_astI -> Styp q r) -> [ SExpression anno $ eAssign (eDereference $ ePlus (EReg16 RY) (eImm8 q)) (EReg8 r) ]
-  SAsm anno (iex_astI -> Stzp r) -> [ SExpression anno $ eAssign (EReg8 r) (eDereference $ ePostIncrement (EReg16 RZ)) ]
+  SAsm anno (iex_astI -> Stzp r) -> [ SExpression anno $ eAssign (eDereference $ ePostIncrement (EReg16 RZ)) (EReg8 r) ]
   SAsm anno (iex_astI -> Icall) -> [ SExpression anno $ ECall (EReg16 RZ) [] ]
   SAsm anno (iex_astI -> Ret) -> [ SReturn anno Nothing ]
+  SAsm anno (iex_astI -> Subi (reg16_odd->Just r16) (Imm8 i)) -> [ SExpression anno $ eAssignMinus (EReg16 r16) (eImm16 $ Imm16 $ i * 256) ]
+  SAsm anno (iex_astI -> Inc r) -> [ SExpression anno $ EUnop PreIncrement (EReg8 r) ]
+  SAsm anno (iex_astI -> Dec r) -> [ SExpression anno $ EUnop PreDecrement (EReg8 r) ]
   SAsm anno (iex_astI -> Swap r) ->
     let higher = eShiftLeft (eAnd (EReg8 r) (eImm8 $ Imm8 0x07)) (eImm8 $ Imm8 4)
         lower = eShiftRight (eAnd (EReg8 r) (eImm8 $ Imm8 0x70)) (eImm8 $ Imm8 4)
@@ -516,6 +529,9 @@ pass_fuse2Statements = do
   ctx_statements %= map (converge (==) . iterate (replaceGroup 2 fuse2Statements))
   return ()
   where
+    plusLike Plus = Just Plus
+    plusLike Subtract = Just Subtract
+    plusLike _ = Nothing
     fuse2Statements stmts = case stmts of
       (SExpression anno1 (EBinop AssignPlus x1 x2): SExpression anno2 (EBinop AssignPlus x3 x4):[]) | x1 == x3 ->
         Just [SExpression anno1 (EBinop AssignPlus x1 (EBinop Plus x2 x4))]
@@ -530,12 +546,13 @@ pass_fuse2Statements = do
     withExprPair :: Expression -> Expression -> (Expression -> Maybe Expression) -> Maybe Expression
     withExprPair x1 x2 f = case (x1, x2) of
       (EUnop Dereference e1, EUnop Dereference e2) -> withExprPair e1 e2 (f . EUnop Dereference)
-      (EBinop Plus e1 e2, EBinop Plus e3 e4) | e2 == e4 -> withExprPair e1 e3 (f . (\e -> EBinop Plus e e2))
-      (EBinop Plus e1 e2, EBinop Plus e3 e4) | e1 == e3 -> withExprPair e2 e4 (f . (\e -> EBinop Plus e1 e))
+      (EBinop (plusLike -> Just binop1) e1 e2, EBinop (plusLike -> Just binop2) e3 e4) | e2 == e4 && binop1 == binop2 -> withExprPair e1 e3 (f . (\e -> EBinop binop1 e e2))
+      (EBinop (plusLike -> Just binop1) e1 e2, EBinop (plusLike -> Just binop2) e3 e4) | e1 == e3 && binop1 == binop2 -> withExprPair e2 e4 (f . (\e -> EBinop binop2 e1 e))
       (e1@(ELiteral (anyLiteral -> i1)), ELiteral (anyLiteral -> i2)) | i1 + 1 == i2 -> f e1
       (ELiteral (anyLiteral -> i1), e2@(ELiteral (anyLiteral -> i2))) | i1 == i2 + 1 -> f e2
       (pImm8 -> Just (Imm8 imm8_1), pImm8 -> Just (Imm8 imm8_2)) -> f $ eImm16 $ Imm16 $ imm8_1 + 256 * imm8_2
       (EReg16 r16_1, EBinop Plus (EReg16 r16_2) (ELiteral (anyLiteral -> 1)))| r16_1 == r16_2 -> f $ EReg16 r16_1
+      (EBinop Plus (EReg16 r16_1) (ELiteral (anyLiteral -> 1)), EReg16 r16_2)| r16_1 == r16_2 -> f $ EReg16 r16_1
       (EReg8 r1, EReg8 r2) -> f =<< withPairEither r1 r2 EReg16
       _ -> Nothing
 
@@ -544,7 +561,12 @@ pass_fuse2Statements = do
       (EBinop Assign (EReg8 r1) x1: EBinop Assign (EReg8 r2) x2:[]) ->
         join  $ withPairEither r1 r2 $ \r16 ->
         withExprPair x1 x2 $ \exp ->
-        Just $ eAssign (EReg16 r16) exp
+        Just $ eAssign exp (EReg16 r16)
+      (EBinop Assign x1 (EReg8 r1): EBinop Assign x2 (EReg8 r2):[]) ->
+        join  $ withPairEither r1 r2 $ \r16 ->
+        withExprPair x1 x2 $ \exp ->
+        Just $ eAssign exp (EReg16 r16)
+      
       _ -> Nothing
 
 fuseMultibytePtrs :: [ Statement ] -> Maybe [ Statement ]
@@ -552,10 +574,11 @@ fuseMultibytePtrs stmts =
   let lift2_reg16 anno r1 r2 r3 r4 binop = withPair r1 r2 $ \r16_1 -> withPair r3 r4 $ \r16_2 ->
         Just $ SExpression anno (EBinop binop (EReg16 r16_1) (EReg16 r16_2))
   in case stmts of
-    (SAsm anno1 (iex_astI -> Add r1 r3): SAsm anno2 (iex_astI -> Adc r2 r4):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 AssignPlus
-    (SAsm anno1 (iex_astI -> Subi r1 (Imm8 imm8_1)): SAsm anno2 (iex_astI -> Sbci r2 (Imm8 imm8_2)):[]) ->
+    (SAsm anno1 (iex_astI -> (Add r1 r3)): SAsm anno2 (iex_astI -> (Adc r2 r4)):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 AssignPlus
+    (SAsm anno1 (iex_astI -> (Subi r1 (Imm8 imm8_1))): SAsm anno2 (iex_astI -> (Sbci r2 (Imm8 imm8_2))):[]) ->
       withPair r1 r2 $ \r16 ->
       Just [ SExpression anno1 (EBinop AssignMinus (EReg16 r16) (ELiteral $ LImm8 (Imm8 $ imm8_1 + 2^8 * imm8_2))) ]
+    (SAsm anno1 (iex_astI -> Sub r1 r3): SAsm anno2 (iex_astI -> Sbc r2 r4):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 AssignMinus
     (SAsm anno1 (iex_astI -> Mov r1 r3): SAsm anno2 (iex_astI -> Or r2 r4):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 Assign
     (SAsm anno1 (iex_astI -> Eor r1 r3): SAsm anno2 (iex_astI -> Eor r2 r4):[]) -> pure <$> lift2_reg16 anno1 r1 r2 r3 r4 AssignBitXor
     (SAsm anno1 (iex_astI -> Ldxp r1): SAsm anno2 (iex_astI -> Ldx r2):[]) -> withPair r1 r2 $ \r16 ->
@@ -566,7 +589,11 @@ fuseMultibytePtrs stmts =
     (SAsm anno1 (iex_astI -> Ldyp r1): SAsm anno2 (iex_astI -> Ldy r2):[]) -> withPair r1 r2 $ \r16 ->
       Just [ SExpression anno1 (EBinop Assign (EReg16 r16) (EUnop Dereference (EUnop PostIncrement (EReg16 RY))))]
     (SAsm anno1 (iex_astI -> Ldy r1): SAsm anno2 (iex_astI -> Lddy r2 (Imm8 1)):[]) -> withPair r1 r2 $ \r16 ->
-      Just [ SExpression anno1 (EBinop Assign (EReg16 r16) (EUnop Dereference (EReg16 r16))) ]
+      Just [ SExpression anno1 (EBinop Assign (EReg16 r16) (EUnop Dereference (EReg16 RY))) ]
+    (SAsm anno1 (iex_astI -> Ldy r1): SAsm anno2 (iex_astI -> Lddy r2 (Imm8 1)):[]) -> withPair r1 r2 $ \r16 ->
+      Just [ SExpression anno1 (EBinop Assign (EReg16 r16) (EUnop Dereference (EReg16 RY))) ]
+    (SAsm anno1 (iex_astI -> Ldz r1): SAsm anno2 (iex_astI -> Lddz r2 (Imm8 1)):[]) -> withPair r1 r2 $ \r16 ->
+      Just [ SExpression anno1 (EBinop Assign (EReg16 r16) (EUnop Dereference (EReg16 RZ))) ]
 
     _ -> Nothing
 
@@ -632,9 +659,9 @@ replaceBranchesWithJumps stmts =
     (SAsm anno1 (iex_astI -> And r1 r2): SAsm anno2 (iex_astI -> (anyBranch -> Just (relptr, condMod))):[]) | r1 == r2 ->
       let (label, goto) = labelAndGotoForRelptr anno2 relptr
       in Just [ label, SIfElse anno1 (condMod (EReg8 r1)) goto (SBlock anno2 [])]
-    (SExpression anno1 e: SAsm anno2 (iex_astI -> Brcc relptr):[]) ->
+    (SExpression anno1 e: SAsm anno2 (iex_astI -> (anyBranch -> Just (relptr, condMod))):[]) ->
       let (label, goto) = labelAndGotoForRelptr anno2 relptr
-      in Just [ label, SIfElse anno1 (EBinop NotEqual (EBinop Plus e eOne) eZero) goto (SBlock anno2 []) ]
+      in Just [ label, SIfElse anno1 (condMod (EBinop NotEqual (EBinop Plus e eOne) eZero)) goto (SBlock anno2 []) ]
     _ -> Nothing
 
 extractSubsequence :: (a -> Maybe b) -> (b -> a -> Maybe c) -> [a] -> ([a], (Maybe b, Maybe c, [a]),[a])
