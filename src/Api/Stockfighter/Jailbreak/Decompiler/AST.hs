@@ -28,6 +28,15 @@ instance Show Register where
 regJunk = Register 0
 regZero = Register 1
 
+instance Num Register where
+  fromInteger x = Register $ fromIntegral x
+
+instance Num AbsPtr where
+  fromInteger x = AbsPtr $ fromIntegral x
+
+instance Num RelPtr where
+  fromInteger x = RelPtr $ fromIntegral x
+
 data Reg16 = R16 Int
            | RX
            | RY
@@ -161,7 +170,7 @@ data Binop = Plus
            | AssignBitOr
            | AssignBitShiftRight
            | AssignBitShiftLeft
-           deriving (Eq, Show, Data, Typeable)
+           deriving (Eq, Ord, Show, Data, Typeable)
 
 data Literal = LImm8 Imm8
              | LImm16 Imm16

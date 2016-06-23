@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards,DeriveDataTypeable #-}
+{-# LANGUAGE RecordWildCards,DeriveDataTypeable,FlexibleInstances #-}
 
 module Api.Stockfighter.Jailbreak.Decompiler.Print where
 
@@ -140,12 +140,13 @@ instance PrintAst Instruction where
       Nothing -> return showI
       Just x -> do
         return $ (PP.text $ T.unpack x) $+$ showI
-      
-instance PrintAst (StatementEx a) where
+
+instance PrintAst (StatementEx StatementAnnotation) where
   printNode x = case x of
-    SExpression _ x -> do
-      a <- printNode x
-      return $ a
+    SExpression anno x -> do
+      b <- printNode x
+--      return $ PP.int (anno ^. stmtAnno_offset) <> PP.text ":" <+> b
+      return b
     SLabel _ x -> printNode x
     SGoto _ varId -> do
       a <- printNode varId

@@ -11,6 +11,7 @@ import Api.Stockfighter.Jailbreak.Decompiler.Print
 import Api.Stockfighter.Jailbreak.Types
 
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 import Control.Monad.Trans.State.Strict
 import Text.PrettyPrint as PP
@@ -36,6 +37,9 @@ decompile instructions =
       pass_simplify
       pass_fuseRedundantLabels
       pass_fuse2Statements
+      pass_reorderStatements
+      -- stmts <- _ctx_statements <$> get
+      -- liftIO $ print_ast stmts
 
     -- Block-level passes
     fixPass "blevel" $ do

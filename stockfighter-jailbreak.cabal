@@ -30,6 +30,7 @@ library
                      , configurator
                      , containers
                      , either
+                     , extra
                      , http-client
                      , http-client-tls
                      , lens

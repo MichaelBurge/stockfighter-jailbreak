@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings,DuplicateRecordFields,OverloadedLabels,InstanceSigs,RecordWildCards,ViewPatterns,PatternSynonyms #-}
+{-# LANGUAGE OverloadedStrings,DuplicateRecordFields,OverloadedLabels,InstanceSigs,RecordWildCards,ViewPatterns,PatternSynonyms,ScopedTypeVariables #-}
 
 module Api.Stockfighter.Jailbreak.Decompiler.Passes where
 
@@ -8,9 +8,12 @@ import Api.Stockfighter.Jailbreak.Types
 import Control.Monad
 import Control.Monad.Trans.State.Strict
 import Control.Lens hiding (Context, elements)
+import Data.Bits
 import Data.Data
+import Data.Data.Lens
 import Data.Function (on)
 import Data.List
+import Data.List.Extra (disjoint)
 import Data.Maybe
 
 import qualified Data.Map as Map
@@ -421,6 +424,7 @@ replaceSingleInstructions stmt =
   SAsm anno (iex_astI -> Eor r1 r2) | r1 == r2 -> [ SExpression anno $ eAssign (EReg8 r1) eZero ]
   SAsm anno (iex_astI -> Eor r1 r2) -> [ SExpression anno $ eAssignXor (EReg8 r1) (EReg8 r2) ]
   SAsm anno (iex_astI -> Andi r imm) -> [ SExpression anno $ eAssignAnd (EReg8 r) (eImm8 imm) ]
+  SAsm anno (iex_astI -> And r1 r2) -> [ SExpression anno $ eAssignAnd (EReg8 r1) (EReg8 r2) ]
   SAsm anno (iex_astI -> Or r1 r2) -> [ SExpression anno $ eAssignOr (EReg8 r1) (EReg8 r2) ]
   SAsm anno (iex_astI -> Ori r imm) -> [ SExpression anno $ eAssignOr (EReg8 r) (eImm8 imm) ]
   SAsm anno (iex_astI -> Lsr r) -> [ SExpression anno $ eAssignShiftRight (EReg8 r) eOne ]
@@ -498,13 +502,32 @@ anyCompare Less = True
 anyCompare _ = False
 
 expr_simplify :: Expression -> Maybe Expression
-expr_simplify = \case
-  EBinop AssignPlus x1 x2 | x1 == x2 -> Just $ EBinop AssignMultiply x1 (eImm8 $ Imm8 2)
-  EBinop binop@(anyCompare -> True) (EBinop Subtract e1 e2) (ELiteral (anyLiteral -> 0)) -> Just $ EBinop binop e1 e2
-  EUnop Not (EUnop Not x) -> Just x
-  EBinop AssignMinus x1 e | e == eOne -> Just $ EUnop PreDecrement x1
-  EBinop Plus (EUnop PreDecrement x1) e | e == eOne -> Just $ EUnop PostDecrement x1
-  x -> Nothing
+expr_simplify =
+  let lit (ELiteral x) = Just $ anyLiteral x
+      lit _ = Nothing
+      associativeBinop = \case
+        Plus -> True
+        Multiply -> True
+        BitAnd -> True
+        BitOr -> True
+        BitXor -> True
+        _ -> False
+  in \case
+    EBinop AssignPlus x1 x2 | x1 == x2 -> Just $ EBinop AssignMultiply x1 (eImm8 $ Imm8 2)
+    EBinop binop@(anyCompare -> True) (EBinop Subtract e1 e2) (ELiteral (anyLiteral -> 0)) -> Just $ EBinop binop e1 e2
+    EUnop Not (EUnop Not x) -> Just x
+    EBinop AssignMinus x1 e | e == eOne -> Just $ EUnop PreDecrement x1
+    EBinop Plus (EUnop PreDecrement x1) e | e == eOne -> Just $ EUnop PostDecrement x1
+    EBinop binop1@(associativeBinop -> True) (EBinop binop2@(associativeBinop -> True) e1 (lit -> Just x)) (lit -> Just y) | binop1 == binop2 -> Just $ EBinop binop1 e1 (EBinop binop1 (eImm8 $ Imm8 x) (eImm8 $ Imm8 x))
+    EBinop binop1@(associativeBinop -> True) (lit -> Just x) (EBinop binop2@(associativeBinop -> True) e1 (lit -> Just y)) | binop1 == binop2 -> Just $ EBinop binop1 e1 (EBinop binop1 (eImm8 $ Imm8 x) (eImm8 $ Imm8 x))
+    EBinop Plus (lit -> Just x) (lit -> Just y) -> Just $ eImm8 $ Imm8 $ x + y
+    EBinop Subtract (lit -> Just x) (lit -> Just y) -> Just $ eImm8 $ Imm8 $ x - y
+    EBinop Multiply (lit -> Just x) (lit -> Just y) -> Just $ eImm8 $ Imm8 $ x * y
+    EBinop BitAnd (lit -> Just x) (lit -> Just y) -> Just $ eImm8 $ Imm8 $ x .&. y
+    EBinop BitXor (lit -> Just x) (lit -> Just y) -> Just $ eImm8 $ Imm8 $ x `xor` y
+    EBinop BitOr (lit -> Just x) (lit -> Just y) -> Just $ eImm8 $ Imm8 $ x .|. y
+    EBinop AssignBitAnd e1 (lit -> Just 0) -> Just $ EBinop Assign e1 eZero
+    x -> Nothing
 
 pass_simplify :: Pass
 pass_simplify = do
@@ -539,6 +562,60 @@ anyLiteral (LImm8 (Imm8 x)) = x
 anyLiteral (LImm16 (Imm16 x)) = x
 anyLiteral (LImm32 (Imm32 x)) = x
 
+
+assignBinop :: Binop -> Maybe Binop
+assignBinop AssignPlus = Just Plus
+assignBinop AssignMultiply = Just Multiply
+assignBinop AssignMinus = Just Subtract
+assignBinop AssignBitAnd = Just BitAnd
+assignBinop AssignBitOr = Just BitOr
+assignBinop AssignBitXor = Just BitXor
+assignBinop AssignBitShiftRight = Just BitShiftRight
+assignBinop AssignBitShiftLeft = Just BitShiftLeft
+assignBinop _ = Nothing
+
+swapStatements :: (Statement, Statement) -> (Statement, Statement)
+swapStatements (s1, s2) = let
+  f = set (annotation . stmtAnno_offset)
+  g x = x ^. annotation ^. stmtAnno_offset 
+  in (f (g s2) s1, f (g s1) s2)
+
+pass_reorderStatements :: Pass
+pass_reorderStatements = do
+  ctx_statements %= map (converge (==) . iterate (replaceGroup 2 reorder2Statements))
+  return ()
+  where
+    reorder2Statements stmts = case stmts of
+      (s1@(SExpression anno1 e1): s2@(SExpression anno2 e2): []) | shouldSwap e1 e2 ->
+        let (t1, t2) = swapStatements (s1, s2)
+        in Just [ t1, t2 ]
+      _ -> Nothing
+    get :: (Eq a, Typeable a) => Expression -> [a]      
+    get e = foldMapOf template (pure) e                 
+    check :: forall a. (Eq a, Typeable a) => Expression -> Expression -> Proxy a -> Bool
+    check e1 e2 p = (get e1 :: [a]) `disjoint` (get e2 :: [a])
+    isDisjoint e1 e2 =
+      check e1 e2 (Proxy :: Proxy Register) &&
+      check e1 e2 (Proxy :: Proxy Reg16) &&
+      check e1 e2 (Proxy :: Proxy VariableId)
+    shouldSwap e1 e2 =
+      case (e1, e2) of
+        (EBinop binop1@(assignBinop -> Just _) x1 x2, EBinop binop2 y1 y2) ->
+          isDisjoint x1 y2 && isDisjoint x2 y1 && (binop1 < binop2 || (binop1 == binop2 && shouldSwap x1 y1))
+        (EReg8 r1, EReg8 r2) -> r2 < r1
+        (_, EReg8 _) -> True
+        (EReg16 r1, EReg16 r2) -> r2 < r1
+        _ -> False
+    commutativeBinop = \case
+      (assignBinop -> Just binop) -> commutativeBinop binop
+      Plus -> True
+      Multiply -> True
+      BitAnd -> True
+      BitXor -> True
+      BitShiftRight -> True
+      BitShiftLeft -> True
+      _ -> False
+
 pass_fuse2Statements :: Pass
 pass_fuse2Statements = do
   ctx_statements %= map (converge (==) . iterate (replaceGroup 2 fuse2Statements))
@@ -548,10 +625,8 @@ pass_fuse2Statements = do
     plusLike Subtract = Just Subtract
     plusLike _ = Nothing
     fuse2Statements stmts = case stmts of
-      (SExpression anno1 (EBinop AssignPlus x1 x2): SExpression anno2 (EBinop AssignPlus x3 x4):[]) | x1 == x3 ->
-        Just [SExpression anno1 (EBinop AssignPlus x1 (EBinop Plus x2 x4))]
-      (SExpression anno1 (EBinop AssignMultiply x1 x2): SExpression anno2 (EBinop AssignMultiply x3 x4):[]) | x1 == x3 ->
-        Just [SExpression anno1 (EBinop AssignMultiply x1 (EBinop Multiply x2 x4))]
+      (SExpression anno1 (EBinop binop1@(assignBinop -> Just binop2) x1 x2): SExpression anno2 (EBinop binop3@(assignBinop -> Just binop4) x3 x4): []) | x1 == x3 && binop1 == binop3 ->
+        Just [ SExpression anno1 (EBinop binop1 x1 (EBinop binop2 x2 x4))]
       (SExpression anno1 (EBinop AssignBitShiftRight x1 x2): SExpression anno2 (EBinop AssignBitShiftRight x3 x4):[]) | x1 == x3 ->
         Just [SExpression anno1 (EBinop AssignBitShiftRight x1 (EBinop Plus x2 x4))]
       (SExpression anno1 (EBinop Assign x1 x2): SExpression anno2 (expandAssignment -> EBinop Assign x3 (EBinop binop x4 x5)):[]) | x1 == x3 && x3 == x4 -> Just [ SExpression anno1 (EBinop Assign x1 (EBinop binop x2 x5)) ]
