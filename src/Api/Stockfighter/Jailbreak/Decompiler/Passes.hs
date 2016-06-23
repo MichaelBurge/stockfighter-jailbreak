@@ -307,6 +307,8 @@ normalizeStatement stat =
     SReturn _ _ -> stat
     SWhile a b stmt -> SWhile a b (normalizeStatement stmt)
     SContinue _ -> stat
+    SPush _ _ -> stat
+    SPop _ _ -> stat
 
 replaceSubtree :: (Statement -> [ Statement ] ) -> Statement -> Statement
 replaceSubtree f stat =
@@ -324,6 +326,8 @@ replaceSubtree f stat =
        SReturn _ _ -> stat
        SWhile a b c -> SWhile a b (rewrite c)
        SContinue _ -> stat
+       SPush _ _ -> stat
+       SPop _ _ -> stat
 
 replace :: Int -> ([a] -> Maybe [a]) -> [a] -> [a]
 replace i f [] = []
@@ -345,7 +349,8 @@ replaceGroup i f stat =
     SFunction a b c ds e -> SFunction a b c (replace i f $ map rewrite ds) (rewrite e)
     SIfElse a b c d -> SIfElse a b (rewrite c) (rewrite d)
     SReturn _ _ -> stat
-
+    SPush _ _ -> stat
+    SPop _ _ -> stat
 
 labelAndGotoForRelptr :: StatementAnnotation -> RelPtr -> (Statement, Statement)
 labelAndGotoForRelptr anno (RelPtr o) =
@@ -398,9 +403,13 @@ reg16_odd _ = Nothing
 replaceSingleInstructions :: Statement -> [ Statement ]
 replaceSingleInstructions stmt =
   let postInc = EUnop PostIncrement
+      postDec = EUnop PostDecrement
       anyLdReg16 (Ldxp r) = Just (r, postInc (EReg16 RX))
       anyLdReg16 (Ldyp r) = Just (r, postInc (EReg16 RY))
       anyLdReg16 (Ldzp r) = Just (r, postInc (EReg16 RZ))
+      anyLdReg16 (Ldxm r) = Just (r, postInc (EReg16 RX))
+      anyLdReg16 (Ldym r) = Just (r, postInc (EReg16 RY))
+      anyLdReg16 (Ldzm r) = Just (r, postInc (EReg16 RZ))
       anyLdReg16 (Ldx r) = Just (r, EReg16 RX)
       anyLdReg16 (Ldy r) = Just (r, EReg16 RY)
       anyLdReg16 (Ldz r) = Just (r, EReg16 RZ)
@@ -437,8 +446,11 @@ replaceSingleInstructions stmt =
   SAsm anno (iex_astI -> Icall) -> [ SExpression anno $ ECall (EReg16 RZ) [] ]
   SAsm anno (iex_astI -> Ret) -> [ SReturn anno Nothing ]
   SAsm anno (iex_astI -> Subi (reg16_odd->Just r16) (Imm8 i)) -> [ SExpression anno $ eAssignMinus (EReg16 r16) (eImm16 $ Imm16 $ i * 256) ]
+  SAsm anno (iex_astI -> Subi r imm) -> [ SExpression anno $ eAssignMinus (EReg8 r) (eImm8 imm) ]
   SAsm anno (iex_astI -> Inc r) -> [ SExpression anno $ EUnop PreIncrement (EReg8 r) ]
   SAsm anno (iex_astI -> Dec r) -> [ SExpression anno $ EUnop PreDecrement (EReg8 r) ]
+  SAsm anno (iex_astI -> Push r) -> [ SPush anno $ EReg8 r ]
+  SAsm anno (iex_astI -> Pop r) -> [ SPop anno $ EReg8 r ]
   SAsm anno (iex_astI -> Swap r) ->
     let higher = eShiftLeft (eAnd (EReg8 r) (eImm8 $ Imm8 0x07)) (eImm8 $ Imm8 4)
         lower = eShiftRight (eAnd (EReg8 r) (eImm8 $ Imm8 0x70)) (eImm8 $ Imm8 4)
@@ -561,7 +573,7 @@ pass_fuse2Statements = do
       (EBinop Assign (EReg8 r1) x1: EBinop Assign (EReg8 r2) x2:[]) ->
         join  $ withPairEither r1 r2 $ \r16 ->
         withExprPair x1 x2 $ \exp ->
-        Just $ eAssign exp (EReg16 r16)
+        Just $ eAssign (EReg16 r16) exp
       (EBinop Assign x1 (EReg8 r1): EBinop Assign x2 (EReg8 r2):[]) ->
         join  $ withPairEither r1 r2 $ \r16 ->
         withExprPair x1 x2 $ \exp ->
@@ -594,13 +606,17 @@ fuseMultibytePtrs stmts =
       Just [ SExpression anno1 (EBinop Assign (EReg16 r16) (EUnop Dereference (EReg16 RY))) ]
     (SAsm anno1 (iex_astI -> Ldz r1): SAsm anno2 (iex_astI -> Lddz r2 (Imm8 1)):[]) -> withPair r1 r2 $ \r16 ->
       Just [ SExpression anno1 (EBinop Assign (EReg16 r16) (EUnop Dereference (EReg16 RZ))) ]
-
+    (SAsm anno1 (iex_astI -> Push r1): SAsm anno2 (iex_astI -> Push r2): []) -> withPair r1 r2 $ \r16 ->
+      Just [ SPush anno1 (EReg16 r16) ]
+    (SAsm anno1 (iex_astI -> Pop r2): SAsm anno2 (iex_astI -> Pop r1): []) -> withPair r1 r2 $ \r16 ->
+      Just [ SPop anno1 (EReg16 r16) ]
     _ -> Nothing
 
 anyBranch :: AstInstruction -> Maybe (RelPtr, Expression -> Expression)
 anyBranch (Brne relptr) = Just (relptr, id)
 anyBranch (Breq relptr) = Just (relptr, EUnop Not)
 anyBranch (Brge relptr) = Just (relptr, \e -> EBinop GreaterOrEqual e (eImm8 $ Imm8 0))
+anyBranch (Brlt relptr) = Just (relptr, \e -> EBinop Less e (eImm8 $ Imm8 0))
 anyBranch (Brcc relptr) = Just (relptr, \e -> EBinop Less e eZero)
 anyBranch _ = Nothing
 
@@ -763,3 +779,50 @@ pass_rewriteCallInstructionsToCallSymbols = do
         Nothing -> [ stmt ] 
         Just sym -> [ SExpression anno $ ECall (ESymbol sym) [] ]
       _ -> [ stmt ]
+
+newVar :: PassM VariableId
+newVar = do
+  varId <- _nextId <$> _ctx_variables <$> get
+  ctx_variables %= (& nextId %~ (+1))
+  return $ VariableId varId
+
+expr_type :: Expression -> Type
+expr_type e = case e of
+  ELiteral lit -> case lit of
+    LImm8 _ -> TChar
+    LImm16 _ -> TInt
+    LImm32 _ -> TLong
+  EUnop _ a -> expr_type a
+  EBinop _ a b -> expr_type a
+  ECall _ _ -> undefined
+  EReg8 _ -> TChar
+  EReg16 _ -> TInt
+  ESymbol _ -> undefined
+  EVariable _ -> undefined
+
+replaceExpression :: (Expression -> Maybe Expression) -> Statement -> Statement
+replaceExpression f stmt = stmt & set_expr %~ \e -> fromMaybe e (f e)
+
+pass_convertPushesAndPopsIntoVariables :: Pass
+pass_convertPushesAndPopsIntoVariables = do
+  varId <- newVar
+  ctx_statements %= (replaceBlockSubsequence markPush markPop (defineVariable varId))
+  return ()
+  where
+    markPush stmt = case stmt of
+      SPush anno e -> Just (anno, e)
+      _ -> Nothing
+    markPop (anno, e1) stmt = case stmt of
+      SPop anno e2 | e1 == e2 -> Just anno
+      _ -> Nothing
+    defineVariable :: VariableId -> (StatementAnnotation, Expression) -> Maybe StatementAnnotation -> [ Statement ] -> Maybe [Statement]
+    defineVariable varId (annoPush, e1) mAnnoPop stmts =
+      case mAnnoPop of
+        Nothing -> Nothing
+        Just annoPop ->
+          let declaration = SVariable annoPush varId (expr_type e1) $ Just e1
+              finish = SExpression annoPop $ EBinop Assign e1 (EVariable varId)
+              eMod nodeE = if nodeE == e1
+                           then Just $ EVariable varId
+                           else Nothing
+          in Just $ [declaration] ++ (map (replaceExpression eMod) $ init $ tail stmts) ++ [finish]

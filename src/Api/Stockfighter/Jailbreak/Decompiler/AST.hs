@@ -176,6 +176,7 @@ data Expression where
   EReg8 :: Register -> Expression
   EReg16 :: Reg16 -> Expression
   ESymbol :: Symbol -> Expression
+  EVariable :: VariableId -> Expression
 
 instance Plated Expression where
 
@@ -190,6 +191,8 @@ data Type where
   TIntPtr  :: Type
   TChar    :: Type
   TCharPtr :: Type
+  TLong    :: Type
+  TLongPtr :: Type
 
 deriving instance Show Type
 deriving instance Eq Type
@@ -347,6 +350,8 @@ annotation =
         (SReturn a _) -> a
         (SWhile a _ _) -> a
         (SContinue a) -> a
+        (SPush a _) -> a
+        (SPop a _) -> a
       setter a x = case a of
         (SExpression a b) -> SExpression x b
         (SLabel a b) -> SLabel x b
@@ -359,6 +364,8 @@ annotation =
         (SReturn a b) -> SReturn x b
         (SWhile a b c) -> SWhile x b c
         (SContinue a) -> SContinue x
+        (SPush a b) -> SPush x b
+        (SPop a b) -> SPop x b
   in lens getter setter
 
 data StatementEx a where
@@ -373,7 +380,8 @@ data StatementEx a where
   SReturn     :: (Eq a, Show a) => a -> Maybe Expression -> StatementEx a
   SWhile      :: (Eq a, Show a) => a -> Expression -> StatementEx a -> StatementEx a
   SContinue   :: (Eq a, Show a) => a -> StatementEx a
-
+  SPush       :: (Eq a, Show a) => a -> Expression -> StatementEx a
+  SPop        :: (Eq a, Show a) => a -> Expression -> StatementEx a
 
 deriving instance Show (StatementEx a)
 deriving instance Eq (StatementEx a)

@@ -20,8 +20,7 @@ instance PrintAst Symbol where
 
 instance PrintAst VariableId where
   printNode (VariableId varId) = do
-    context <- ask
-    printNode $ context ^. ctx_variables ^. elements ^. at varId
+    return $ PP.text "x" <> PP.int varId
 
 instance PrintAst LabelId where
   printNode (LabelId id) = return $ PP.text "label" <> PP.int id
@@ -131,6 +130,7 @@ instance PrintAst Expression where
           EReg8 r8 -> printNode r8
           EReg16 r16 -> printNode r16
           ESymbol (Symbol x _) -> return $ PP.text $ T.unpack x
+          EVariable x -> printNode x
     in result
 
 instance PrintAst Instruction where
@@ -192,6 +192,12 @@ instance PrintAst (StatementEx a) where
       b <- printNode stmt
       return $ PP.text "while" <+> parens a $+$ hang empty 4 b
     SContinue _ -> return $ PP.text "continue"
+    SPush _ x -> do
+      a <- printNode x
+      return $ PP.text "push" <+> a
+    SPop _ x -> do
+      a <- printNode x
+      return $ PP.text "pop" <+> a
 
 instance PrintAst a => PrintAst (Maybe a) where
   printNode Nothing = return empty

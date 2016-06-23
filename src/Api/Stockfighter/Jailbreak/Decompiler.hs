@@ -39,6 +39,7 @@ decompile instructions =
 
     -- Block-level passes
     fixPass $ do
+      pass_convertPushesAndPopsIntoVariables
       pass_fuseLabelsAndGotosIntoWhileLoops
       pass_fuseLabelsGotosIfsIntoIfBlocks
       pass_simplify
