@@ -23,7 +23,7 @@ decompile instructions =
     -- Instruction-level passes
     pass_groupBySymbol
     
-    fixPass $ do
+    fixPass "ilevel" $ do
       pass_rewriteCallInstructionsToCallSymbols
       pass_fuse3Instrs
       pass_replaceLocalJumpsWithGotos
@@ -32,17 +32,17 @@ decompile instructions =
       pass_replaceSingleInstructions
 
     -- Statement-level passes
-    fixPass $ do
+    fixPass "slevel" $ do
       pass_simplify
       pass_fuseRedundantLabels
       pass_fuse2Statements
 
     -- Block-level passes
-    fixPass $ do
-      pass_convertPushesAndPopsIntoVariables
-      pass_fuseLabelsAndGotosIntoWhileLoops
-      pass_fuseLabelsGotosIfsIntoIfBlocks
-      pass_simplify
+    fixPass "blevel" $ do
+      fixPass "pushpop" pass_convertPushesAndPopsIntoVariables
+      fixPass "while" pass_fuseLabelsAndGotosIntoWhileLoops
+      fixPass "ifblocks" pass_fuseLabelsGotosIfsIntoIfBlocks
+      fixPass "simplify" pass_simplify
 
 print_ast :: [ Statement ] -> IO ()
 print_ast statements = do

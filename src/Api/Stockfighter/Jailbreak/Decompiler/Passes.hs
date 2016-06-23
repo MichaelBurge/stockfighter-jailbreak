@@ -309,6 +309,7 @@ normalizeStatement stat =
     SContinue _ -> stat
     SPush _ _ -> stat
     SPop _ _ -> stat
+    SGotoSymbol _ _ -> stat
 
 replaceSubtree :: (Statement -> [ Statement ] ) -> Statement -> Statement
 replaceSubtree f stat =
@@ -328,6 +329,7 @@ replaceSubtree f stat =
        SContinue _ -> stat
        SPush _ _ -> stat
        SPop _ _ -> stat
+       SGotoSymbol _ _ -> stat
 
 replace :: Int -> ([a] -> Maybe [a]) -> [a] -> [a]
 replace i f [] = []
@@ -351,6 +353,7 @@ replaceGroup i f stat =
     SReturn _ _ -> stat
     SPush _ _ -> stat
     SPop _ _ -> stat
+    SGotoSymbol _ _ -> stat
 
 labelAndGotoForRelptr :: StatementAnnotation -> RelPtr -> (Statement, Statement)
 labelAndGotoForRelptr anno (RelPtr o) =
@@ -615,9 +618,10 @@ fuseMultibytePtrs stmts =
 anyBranch :: AstInstruction -> Maybe (RelPtr, Expression -> Expression)
 anyBranch (Brne relptr) = Just (relptr, id)
 anyBranch (Breq relptr) = Just (relptr, EUnop Not)
-anyBranch (Brge relptr) = Just (relptr, \e -> EBinop GreaterOrEqual e (eImm8 $ Imm8 0))
-anyBranch (Brlt relptr) = Just (relptr, \e -> EBinop Less e (eImm8 $ Imm8 0))
-anyBranch (Brcc relptr) = Just (relptr, \e -> EBinop Less e eZero)
+anyBranch (Brge relptr) = Just (relptr, \e -> EBinop GreaterOrEqual e eZero)
+anyBranch (Brlt relptr) = Just (relptr, \e -> EBinop Less e eZero)
+anyBranch (Brcc relptr) = Just (relptr, \e -> EBinop GreaterOrEqual e eZero)
+anyBranch (Brcs relptr) = Just (relptr, \e -> EBinop Less e eZero)
 anyBranch _ = Nothing
 
 fuse3Instrs :: [ Statement ] -> Maybe [ Statement ]
@@ -677,7 +681,7 @@ replaceBranchesWithJumps stmts =
       in Just [ label, SIfElse anno1 (condMod (EReg8 r1)) goto (SBlock anno2 [])]
     (SExpression anno1 e: SAsm anno2 (iex_astI -> (anyBranch -> Just (relptr, condMod))):[]) ->
       let (label, goto) = labelAndGotoForRelptr anno2 relptr
-      in Just [ label, SIfElse anno1 (condMod (EBinop NotEqual (EBinop Plus e eOne) eZero)) goto (SBlock anno2 []) ]
+      in Just [ label, SIfElse anno1 (condMod e) goto (SBlock anno2 []) ]
     _ -> Nothing
 
 extractSubsequence :: (a -> Maybe b) -> (b -> a -> Maybe c) -> [a] -> ([a], (Maybe b, Maybe c, [a]),[a])
@@ -760,12 +764,15 @@ offsetSymbolTable :: Table Symbol -> M.IntMap Symbol
 offsetSymbolTable symbolTable = M.fromList $ map (\(k, sym@(Symbol _ offset)) -> (offset, sym)) $ M.assocs $ symbolTable ^. elements
   
 
-fixPass :: Pass -> Pass
-fixPass pass = do
-  ctx1 <- get
-  pass
-  ctx2 <- get
-  when (ctx1 /= ctx2) pass
+fixPass :: String -> Pass -> Pass
+fixPass name pass = f 100
+  where
+    f 0 = Prelude.error $ "fixPass: Recursion limit on " ++ name
+    f n = do
+      ctx1 <- get
+      pass
+      ctx2 <- get
+      when (ctx1 /= ctx2) $ f (n-1)
 
 pass_rewriteCallInstructionsToCallSymbols :: Pass
 pass_rewriteCallInstructionsToCallSymbols = do
@@ -778,6 +785,9 @@ pass_rewriteCallInstructionsToCallSymbols = do
       SAsm anno (iex_astI -> Call (Imm32 offset)) -> case M.lookup offset offsetTable of
         Nothing -> [ stmt ] 
         Just sym -> [ SExpression anno $ ECall (ESymbol sym) [] ]
+      SAsm anno (iex_astI -> Jmp (AbsPtr offset)) -> case M.lookup offset offsetTable of
+        Nothing -> [ stmt ]
+        Just sym -> [ SGotoSymbol anno sym ]
       _ -> [ stmt ]
 
 newVar :: PassM VariableId
@@ -785,6 +795,16 @@ newVar = do
   varId <- _nextId <$> _ctx_variables <$> get
   ctx_variables %= (& nextId %~ (+1))
   return $ VariableId varId
+
+withNewVar :: (VariableId -> Pass) -> Pass
+withNewVar action = do
+  varId <- newVar
+  stmts1 <- (^. ctx_statements) <$> get
+  action varId
+  stmts2 <- (^. ctx_statements) <$> get
+  if stmts1 == stmts2
+    then ctx_variables %= (& nextId %~ (subtract 1))
+    else return ()
 
 expr_type :: Expression -> Type
 expr_type e = case e of
@@ -804,10 +824,8 @@ replaceExpression :: (Expression -> Maybe Expression) -> Statement -> Statement
 replaceExpression f stmt = stmt & set_expr %~ \e -> fromMaybe e (f e)
 
 pass_convertPushesAndPopsIntoVariables :: Pass
-pass_convertPushesAndPopsIntoVariables = do
-  varId <- newVar
+pass_convertPushesAndPopsIntoVariables = withNewVar $ \varId ->  
   ctx_statements %= (replaceBlockSubsequence markPush markPop (defineVariable varId))
-  return ()
   where
     markPush stmt = case stmt of
       SPush anno e -> Just (anno, e)

@@ -198,6 +198,9 @@ instance PrintAst (StatementEx a) where
     SPop _ x -> do
       a <- printNode x
       return $ PP.text "pop" <+> a
+    SGotoSymbol _ x -> do
+      a <- printNode x
+      return $ PP.text "goto" <+> a
 
 instance PrintAst a => PrintAst (Maybe a) where
   printNode Nothing = return empty

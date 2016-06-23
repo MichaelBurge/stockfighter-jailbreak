@@ -352,6 +352,7 @@ annotation =
         (SContinue a) -> a
         (SPush a _) -> a
         (SPop a _) -> a
+        (SGotoSymbol a _) -> a
       setter a x = case a of
         (SExpression a b) -> SExpression x b
         (SLabel a b) -> SLabel x b
@@ -366,6 +367,7 @@ annotation =
         (SContinue a) -> SContinue x
         (SPush a b) -> SPush x b
         (SPop a b) -> SPop x b
+        (SGotoSymbol a b) -> SGotoSymbol x b
   in lens getter setter
 
 data StatementEx a where
@@ -382,6 +384,7 @@ data StatementEx a where
   SContinue   :: (Eq a, Show a) => a -> StatementEx a
   SPush       :: (Eq a, Show a) => a -> Expression -> StatementEx a
   SPop        :: (Eq a, Show a) => a -> Expression -> StatementEx a
+  SGotoSymbol :: (Eq a, Show a) => a -> Symbol -> StatementEx a
 
 deriving instance Show (StatementEx a)
 deriving instance Eq (StatementEx a)
