@@ -11,6 +11,7 @@ import Control.Monad
 import Control.Monad.Trans.Reader
 import Data.Aeson (decode,encode,eitherDecode)
 import Data.List (lookup)
+import Data.Maybe (fromMaybe)
 import Data.Monoid ((<>))
 import System.Environment
 import Text.PrettyPrint (render)
@@ -83,11 +84,17 @@ withAssemblyFile args action = case args of
     case eInstructions of
       Left err -> putStrLn $ "Error decoding: " ++ err
       Right instructions -> do
-        action instructions
+        let xs = flip mapi instructions $ \x i ->
+              case i of
+                0 -> x { symbol = Just $ fromMaybe "0: <start>" $ symbol x } :: Instruction
+                _ -> x { offset = i } :: Instruction
+        action xs
 
 command_device_program_disassemble args = withAssemblyFile args $ \instructions -> do
   putStrLn $ "Number of Instructions: " ++ show (length (instructions :: [Instruction]))
-  forM_ instructions $ putStrLn . render . flip runReader mempty . printNode
+  let instructionsWithIds = mapi (\a b -> (a,b)) instructions
+  forM_ instructions $ \x ->
+    putStrLn $ render $ flip runReader mempty $ printNode $ x
 
 command_device_program_decompile args = withAssemblyFile args $ \instructions -> do
   context <- decompile instructions

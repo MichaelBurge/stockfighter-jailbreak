@@ -373,6 +373,7 @@ eAssignAnd = EBinop AssignBitAnd
 eAssignOr = EBinop AssignBitOr
 eAssignShiftRight = EBinop AssignBitShiftRight
 ePostIncrement = EUnop PostIncrement
+ePostDecrement = EUnop PostDecrement
 eNot = EUnop Not
 eAssignShiftLeft = EBinop AssignBitShiftLeft
 ePlus = EBinop Plus
@@ -448,6 +449,7 @@ replaceSingleInstructions stmt =
   SAsm anno (iex_astI -> Sty r) -> [ SExpression anno $ eAssign (eDereference $ EReg16 RY) (EReg8 r)]
   SAsm anno (iex_astI -> Stz r) -> [ SExpression anno $ eAssign (eDereference $ EReg16 RZ) (EReg8 r)]
   SAsm anno (iex_astI -> Stxp r) -> [ SExpression anno $ eAssign (eDereference $ ePostIncrement (EReg16 RX)) (EReg8 r) ]
+  SAsm anno (iex_astI -> Stxm r) -> [ SExpression anno $ eAssign (eDereference $ ePostDecrement (EReg16 RX)) (EReg8 r) ]
   SAsm anno (iex_astI -> Styp q r) -> [ SExpression anno $ eAssign (eDereference $ ePlus (EReg16 RY) (eImm8 q)) (EReg8 r) ]
   SAsm anno (iex_astI -> Stzp r) -> [ SExpression anno $ eAssign (eDereference $ ePostIncrement (EReg16 RZ)) (EReg8 r) ]
   SAsm anno (iex_astI -> Icall) -> [ SExpression anno $ ECall (EReg16 RZ) [] ]
